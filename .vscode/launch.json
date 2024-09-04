@@ -1,0 +1,134 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'fbsms'",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-d"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug +Burp",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-d", "-b", "'/etc/ssl/certs/portSwagger.pem'"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug +VPN",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-d", "-v"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug +proxy",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-d", "-x"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug +Burp +proxy",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-d", "-x", "-b", "'/etc/ssl/certs/portSwagger.pem'"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests",
+            "cargo": {
+                "args": ["test", "--no-run", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Test sound",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-d", "-a"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Run +VPN",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-v"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Run +proxy",
+            "cargo": {
+                "args": ["build", "--bin=fbsms"],
+                "filter": {
+                    "name": "fbsms",
+                    "kind": "bin"
+                }
+            },
+            "args": ["-x"],
+            "cwd": "${workspaceFolder}"
+        },
+    ]
+}
