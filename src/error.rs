@@ -15,3 +15,7 @@ pub struct UnsupportedBrowserError(pub String);
 #[derive(Error, Debug)]
 #[error("Max tries exceeded")]
 pub struct MaxTriesExceededError;
+
+#[derive(Error, Debug)]
+#[error("Error parsing enum of type {0}")]
+pub struct ParseEnumError(pub String);
