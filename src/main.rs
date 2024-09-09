@@ -15,12 +15,14 @@ use rustmix::{
     *,
 };
 use serde_json::Value;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use structopt::StructOpt;
+use tokio::time::sleep;
 
 use crate::{common::*, error::*};
 
 const BASE_URL: &str = "https://www.yammer.com/api/v1/";
+const RATE_LIMIT_TIMEOUT_MAX: u64 = 300;
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -150,69 +152,260 @@ async fn get_user_id(client: &Client, token: &str, user_email: &str) -> Result<O
 }
 
 async fn list(client: &Client, token: &str, user_id: Option<u64>) -> Result<()> {
+    let mut messages = Vec::new();
+    let mut thread_messages = Vec::new();
     let mut has_more = true;
     let mut last_message_id = None;
+    let mut message_count = 0u64;
+
+    info!("Fetching messages");
 
     while has_more {
-        let (messages, more) =
-            get_messages(client, token, user_id.clone(), last_message_id).await?;
-        has_more = more;
+        has_more = get_messages(
+            &mut messages,
+            client,
+            token,
+            user_id.clone(),
+            last_message_id,
+        )
+        .await?;
+        message_count += messages.len() as u64;
 
-        if messages.is_empty() {
-            break;
-        }
-
-        for message in messages {
-            println!(
-                "ID: {}, Sender ID: {}, Created At: {}, Body: {}",
-                message["id"], message["sender_id"], message["created_at"], message["body"]["rich"]
-            );
+        while !messages.is_empty() {
+            let message = messages.remove(0);
             last_message_id = message["id"].as_u64();
+            let thread_id = message["thread_id"].as_u64().unwrap();
+            info!("Fetching messages for thread {}", thread_id);
+
+            if !get_messages_in_thread(&mut thread_messages, client, token, thread_id).await? {
+                continue;
+            }
+
+            println!("Messages for thread {}", thread_id);
+
+            while !thread_messages.is_empty() {
+                let thread_message = thread_messages.remove(0);
+                print_message(&thread_message);
+            }
         }
     }
 
+    info!("Listed {} messages", message_count);
     return Ok(());
 }
 
 async fn delete(client: &Client, token: &str, user_id: Option<u64>) -> Result<()> {
+    let mut has_more = true;
+    let mut messages: HashMap<u64, Vec<Value>> = HashMap::new();
+    let mut q_messages = Vec::new();
+    let mut qt_messages = Vec::new();
+    let mut last_message_id = None;
+    let mut deleted_messages = 0u64;
+
+    info!("Fetching messages");
+
+    while has_more {
+        has_more = get_messages(
+            &mut q_messages,
+            client,
+            token,
+            user_id.clone(),
+            last_message_id,
+        )
+        .await?;
+
+        if q_messages.is_empty() {
+            continue;
+        }
+
+        // intialize the message queue for each thread id
+        for message in &q_messages {
+            let thread_id = message["thread_id"].as_u64().unwrap();
+            last_message_id = message["id"].as_u64();
+            messages.insert(thread_id, Vec::new());
+        }
+
+        // add top level messages to the queue
+        while let Some(message) = q_messages.pop() {
+            let thread_id = message["thread_id"].as_u64().unwrap();
+
+            if has_likes(&message) {
+                messages.remove(&thread_id);
+                continue;
+            }
+
+            // traverse the message tree and add all messages to the queue.
+            info!("Traversing the message tree for thread {}", thread_id);
+
+            if !get_messages_in_thread(&mut qt_messages, client, token, thread_id).await? {
+                continue;
+            }
+
+            while !qt_messages.is_empty() {
+                let thread_message = qt_messages.remove(0);
+
+                if has_likes(&thread_message) || thread_message["sender_id"].as_u64() != user_id {
+                    messages.remove(&thread_id);
+                    continue;
+                }
+
+                let queue = match messages.get_mut(&thread_id) {
+                    Some(queue) => queue,
+                    None => continue,
+                };
+                queue.push(thread_message.clone());
+            }
+        }
+
+        // delete messages in the queue
+        for (_, queue) in messages.iter() {
+            for message in queue.iter() {
+                let id = message["id"].as_u64().unwrap();
+                info!("Deleting message '{}'", id);
+                let url = format!("{}messages/{}.json", BASE_URL, id);
+                // let response = client
+                //     .delete(&url)
+                //     .header("authorization", format!("Bearer {}", &token))
+                //     .send()
+                //     .await?;
+
+                // if !response.status().is_success() {
+                //     error!(
+                //         "Error deleting message '{}': {}",
+                //         id,
+                //         response.text().await?
+                //     );
+                //     continue;
+                // }
+                println!("{}", &url);
+                deleted_messages += 1;
+                info!("Deleted message '{}'", id);
+            }
+        }
+    }
+
+    info!("Deleted {} messages", deleted_messages);
     return Ok(());
 }
 
 async fn get_messages(
+    collection: &mut Vec<Value>,
     client: &Client,
     token: &str,
     user_id: Option<u64>,
     last_message_id: Option<u64>,
-) -> Result<(Vec<Value>, bool)> {
+) -> Result<bool> {
     let p_message = if let Some(lmid) = last_message_id {
         format!("&older_than={}", lmid)
     } else {
         String::new()
     };
     let url = format!("{}messages/sent.json?threaded=true{}", BASE_URL, p_message);
-    let response = client
-        .get(&url)
-        .header("authorization", format!("Bearer {}", &token))
-        .send()
-        .await?;
+    let mut rate_limit_timeout = 5u64;
+    let response = loop {
+        match client
+            .get(&url)
+            .header("authorization", format!("Bearer {}", &token))
+            .send()
+            .await
+        {
+            Ok(it) => {
+                if it.status() == 429 {
+                    if rate_limit_timeout > RATE_LIMIT_TIMEOUT_MAX {
+                        return Err(Box::new(RateLimitTimeoutExceededError));
+                    }
+                    warn!(
+                        "Rate limit exceeded. Waiting for {} seconds",
+                        rate_limit_timeout
+                    );
+                    sleep(Duration::from_secs(rate_limit_timeout)).await;
+                    rate_limit_timeout = rate_limit_timeout + 5;
+                    continue;
+                } else {
+                    break it;
+                }
+            }
+            Err(e) => return Err(Box::new(e)),
+        }
+    };
 
     if !response.status().is_success() {
         return Err(Box::new(response.error_for_status().unwrap_err()));
     }
 
     let feed = response.json::<Value>().await?;
-    let mut messages = feed["messages"]
+    let messages = feed["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| {
+            e["sender_type"] == "user" && (user_id.is_none() || e["sender_id"].as_u64() == user_id)
+        })
+        .cloned();
+    collection.extend(messages);
+    let older_available = feed["meta"]["older_available"].as_bool().unwrap_or(false);
+    return Ok(older_available);
+}
+
+async fn get_messages_in_thread(
+    collection: &mut Vec<Value>,
+    client: &Client,
+    token: &str,
+    thread_id: u64,
+) -> Result<bool> {
+    let url = format!("{}messages/in_thread/{}.json", BASE_URL, &thread_id);
+    let mut rate_limit_timeout = 5u64;
+    let response = loop {
+        match client
+            .get(&url)
+            .header("authorization", format!("Bearer {}", &token))
+            .send()
+            .await
+        {
+            Ok(it) => {
+                if it.status() == 429 {
+                    if rate_limit_timeout > RATE_LIMIT_TIMEOUT_MAX {
+                        return Err(Box::new(RateLimitTimeoutExceededError));
+                    }
+                    warn!(
+                        "Rate limit exceeded. Waiting for {} seconds",
+                        rate_limit_timeout
+                    );
+                    sleep(Duration::from_secs(rate_limit_timeout)).await;
+                    rate_limit_timeout = rate_limit_timeout + 5;
+                    continue;
+                } else {
+                    break it;
+                }
+            }
+            Err(e) => return Err(Box::new(e)),
+        }
+    };
+
+    if !response.status().is_success() {
+        return Err(Box::new(response.error_for_status().unwrap_err()));
+    }
+
+    let count = collection.len();
+    let feed = response.json::<Value>().await?;
+    let messages = feed["messages"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|e| e["sender_type"] == "user")
-        .cloned()
-        .collect::<Vec<_>>();
+        .cloned();
+    collection.extend(messages);
+    return Ok(collection.len() > count);
+}
 
-    if let Some(id) = user_id {
-        messages.retain(|m| m["sender_id"].as_u64().unwrap_or(0) == id);
-    }
+fn print_message(message: &Value) {
+    println!(
+        "ID: {}, Sender ID: {}, Created At: {}, Network Id: {}, Group Id: {}, Thread Id: {}, Privacy: {}, Body: {}, Liked By: {}",
+        message["id"], message["sender_id"], message["created_at"], message["network_id"], message["group_id"], message["thread_id"], message["privacy"], message["body"]["rich"], message["liked_by"]["count"]
+    );
+}
 
-    let older_available = feed["meta"]["older_available"].as_bool().unwrap_or(false);
-    return Ok((messages, older_available));
+fn has_likes(message: &Value) -> bool {
+    let liked_by = message["liked_by"]["count"].as_u64().unwrap_or(0);
+    return liked_by > 0;
 }

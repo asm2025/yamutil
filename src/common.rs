@@ -53,9 +53,9 @@ impl FromStr for YammerAction {
     type Err = ParseEnumError;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
-            "List" => Ok(YammerAction::List),
-            "Delete" => Ok(YammerAction::Delete),
+        match s.to_lowercase().as_str() {
+            "list" => Ok(YammerAction::List),
+            "delete" => Ok(YammerAction::Delete),
             _ => Err(ParseEnumError(String::from("YammerAction"))),
         }
     }

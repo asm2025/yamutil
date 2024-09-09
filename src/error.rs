@@ -19,3 +19,7 @@ pub struct MaxTriesExceededError;
 #[derive(Error, Debug)]
 #[error("Error parsing enum of type {0}")]
 pub struct ParseEnumError(pub String);
+
+#[derive(Error, Debug)]
+#[error("Rate limit timeout exceeded")]
+pub struct RateLimitTimeoutExceededError;
