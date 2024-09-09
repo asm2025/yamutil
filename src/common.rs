@@ -79,43 +79,6 @@ impl From<YammerAction> for usize {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageBody {
-    pub urls: Vec<String>,
-    #[serde(rename = "rich")]
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MessageLikedBy {
-    pub count: u32,
-    pub names: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub id: u64,
-    pub sender_id: u64,
-    pub sender_type: String,
-    pub network_id: u64,
-    pub client_type: String,
-    pub group_id: u64,
-    pub created_at: String,
-    pub body: MessageBody,
-    pub liked_by: MessageLikedBy,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Meta {
-    pub older_available: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Feed {
-    pub messages: Vec<Message>,
-    pub meta: Meta,
-}
-
 pub mod output {
     use super::*;
 
