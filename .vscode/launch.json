@@ -15,7 +15,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-d", "-t", "1371983-rv9U3GtH58wGNyt9kZInyQ", "-e", "ahmed.assem@flairstech.com"],
+            "args": ["-d"],
             "cwd": "${workspaceFolder}"
         },
         {
