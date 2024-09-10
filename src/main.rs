@@ -15,7 +15,7 @@ use rustmix::{
     web::reqwest::Client,
     *,
 };
-use serde_json::Value;
+use serde_json::{to_string_pretty, Value};
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::sleep};
 
@@ -553,10 +553,19 @@ async fn get_messages_in_thread(
 }
 
 fn print_message(message: &Value) {
-    println!(
-        "ID: {}, Sender ID: {}, Created At: {}, Network Id: {}, Group Id: {}, Thread Id: {}, Privacy: {}, Body: {}, Liked By: {}",
-        message["id"], message["sender_id"], message["created_at"], message["network_id"], message["group_id"], message["thread_id"], message["privacy"], message["body"]["rich"], message["liked_by"]["count"]
-    );
+    let message = SelectedMessage {
+        id: message["id"].as_u64().unwrap_or(0),
+        sender_id: message["sender_id"].as_u64().unwrap_or(0),
+        network_id: message["network_id"].as_u64().unwrap_or(0),
+        group_id: message["group_id"].as_u64().unwrap_or(0),
+        thread_id: message["thread_id"].as_u64().unwrap_or(0),
+        privacy: message["privacy"].as_str().unwrap().to_owned(),
+        created_at: message["created_at"].as_str().unwrap().to_owned(),
+        body: message["body"]["rich"].as_str().unwrap().to_owned(),
+        liked_by: message["liked_by"]["count"].as_u64().unwrap_or(0),
+    };
+    let json = to_string_pretty(&message).unwrap();
+    println!("{}", json);
 }
 
 fn has_likes(message: &Value) -> bool {

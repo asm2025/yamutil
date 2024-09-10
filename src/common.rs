@@ -10,6 +10,7 @@ use rustmix::{
     },
     AppInfo, Result,
 };
+use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
     sync::Arc,
@@ -65,6 +66,19 @@ impl TokenBucket {
             false
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SelectedMessage {
+    pub id: u64,
+    pub sender_id: u64,
+    pub network_id: u64,
+    pub group_id: u64,
+    pub thread_id: u64,
+    pub privacy: String,
+    pub created_at: String,
+    pub body: String,
+    pub liked_by: u64,
 }
 
 pub mod output {
