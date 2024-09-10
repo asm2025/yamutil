@@ -10,11 +10,11 @@ use rustmix::{
     },
     AppInfo, Result,
 };
-use serde::{Deserialize, Serialize};
-use std::str::FromStr;
-use std::{fmt, path::PathBuf, sync::Arc, time::Duration};
-
-use crate::error::*;
+use std::{
+    path::PathBuf,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 lazy_static! {
     pub static ref APP_INFO: AppInfo<'static> = AppInfo::new(
@@ -34,47 +34,35 @@ pub const TIMEOUT: u64 = 30;
 #[cfg(not(debug_assertions))]
 pub const TIMEOUT: u64 = 5;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum YammerAction {
-    List,
-    Delete,
+pub struct TokenBucket {
+    capacity: usize,
+    tokens: usize,
+    rate_in_seconds: u64,
+    updated: Instant,
 }
 
-impl fmt::Display for YammerAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            YammerAction::List => write!(f, "List"),
-            YammerAction::Delete => write!(f, "Delete"),
+impl TokenBucket {
+    pub fn new(capacity: usize, rate: u64) -> Self {
+        Self {
+            capacity,
+            tokens: capacity,
+            rate_in_seconds: rate,
+            updated: Instant::now(),
         }
     }
-}
 
-impl FromStr for YammerAction {
-    type Err = ParseEnumError;
+    pub fn take(&mut self) -> bool {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.updated).as_secs();
+        self.updated = now;
+        self.tokens = (self.tokens as u64 + elapsed * self.rate_in_seconds)
+            .min(self.capacity as u64) as usize;
 
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "list" => Ok(YammerAction::List),
-            "delete" => Ok(YammerAction::Delete),
-            _ => Err(ParseEnumError(String::from("YammerAction"))),
-        }
-    }
-}
-
-impl From<YammerAction> for &str {
-    fn from(value: YammerAction) -> Self {
-        match value {
-            YammerAction::List => "List",
-            YammerAction::Delete => "Delete",
-        }
-    }
-}
-
-impl From<YammerAction> for usize {
-    fn from(value: YammerAction) -> Self {
-        match value {
-            YammerAction::List => 0,
-            YammerAction::Delete => 1,
+        if self.tokens > 0 {
+            self.tokens -= 1;
+            true
+        } else {
+            false
         }
     }
 }

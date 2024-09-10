@@ -10,6 +10,7 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 chrono = "0"
+clap = { version = "4", features = ["derive"] }
 dotenv = "0"
 futures = "0"
 html-entities = "0"
@@ -24,7 +25,6 @@ rustmix = { git = "https://github.com/asm2025/rustmix.git", tag = "0.3.0" }
 scraper = "0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-structopt = "0"
 tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 url = { version = "2", features = ["serde"] }

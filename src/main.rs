@@ -2,6 +2,7 @@ mod common;
 mod error;
 
 use chrono::Local;
+use clap::{command, Parser, Subcommand};
 use dotenv::dotenv;
 use log::{error, info, warn};
 use reqwest_cookie_store::{CookieStore, CookieStoreRwLock};
@@ -16,30 +17,55 @@ use rustmix::{
 };
 use serde_json::Value;
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use structopt::StructOpt;
-use tokio::time::sleep;
+use tokio::{sync::Mutex, time::sleep};
 
 use crate::{common::*, error::*};
 
 const BASE_URL: &str = "https://www.yammer.com/api/v1/";
 const RATE_LIMIT_TIMEOUT_MAX: u64 = 300;
 
-#[derive(Debug, StructOpt)]
-#[structopt(
+#[derive(Debug, Parser)]
+#[command(
     name = env!("CARGO_PKG_NAME"),
     version = env!("CARGO_PKG_VERSION"),
     author = env!("CARGO_PKG_AUTHORS"),
     about = env!("CARGO_PKG_DESCRIPTION")
 )]
 struct Args {
-    #[structopt(short, long, required = true, help = "The Yammer application token.")]
-    token: String,
-    #[structopt(short, long, help = "The user email to filter posts.")]
-    email: Option<String>,
-    #[structopt(short, long, default_value = YammerAction::List.into(), help = "The action to take on Yammer user's posts.")]
+    /// The action to take on Yammer user's posts.
+    #[command(subcommand)]
     action: YammerAction,
-    #[structopt(short, long, help = "Enable debug mode. The build is a debug build.")]
+    /// Enable debug mode. The build must be a debug build.
+    #[arg(short, long)]
     debug: bool,
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum YammerAction {
+    /// List messages.
+    List {
+        /// The Yammer application token.
+        #[arg(short, long, required = true)]
+        token: String,
+        /// The message thread id. If no thread id is provided, all messages will be listed.
+        #[arg(short = 'i', long)]
+        thread_id: Option<u64>,
+        /// The user email to filter posts.
+        #[arg(short, long)]
+        email: Option<String>,
+    },
+    /// Delete messages.
+    Delete {
+        /// The Yammer application token.
+        #[arg(short, long, required = true)]
+        token: String,
+        /// The message thread id. If no thread id is provided, all messages will be deleted.
+        #[arg(short = 'i', long)]
+        thread_id: Option<u64>,
+        /// The user email to filter posts.
+        #[arg(short, long)]
+        email: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -47,7 +73,7 @@ async fn main() -> Result<()> {
     dotenv().ok();
 
     // Called first to set debug flag. It affects the log level
-    let args = Args::from_args();
+    let args = Args::parse();
     set_debug(args.debug);
     let gaurd = log4rs::from_config(configure_log()?)?;
 
@@ -61,31 +87,59 @@ async fn main() -> Result<()> {
             panic!("Error building client: {}", e.get_message());
         }
     };
-    let user_id = if let Some(email) = &args.email {
-        match get_user_id(&client, &args.token, &email).await {
-            Ok(it) => it,
-            Err(e) => {
-                error!("{}", e.get_message());
-                return Ok(());
+    let bucket = Arc::new(Mutex::new(TokenBucket::new(10, 30)));
+
+    match &args.action {
+        YammerAction::List {
+            token,
+            thread_id,
+            email,
+        } => {
+            let user_id = if let Some(email) = &*email {
+                match get_user_id(&client, token, email).await {
+                    Ok(it) => it,
+                    Err(e) => {
+                        error!("{}", e.get_message());
+                        return Ok(());
+                    }
+                }
+            } else {
+                None
+            };
+            match list(&client, &bucket, token, *thread_id, user_id).await {
+                Ok(count) => {
+                    info!("Listed {} messages", count);
+                }
+                Err(e) => {
+                    error!("{}", e.get_message());
+                }
             }
         }
-    } else {
-        None
-    };
-
-    match args.action {
-        YammerAction::List => match list(&client, &args.token, user_id).await {
-            Ok(_) => {}
-            Err(e) => {
-                error!("{}", e.get_message());
+        YammerAction::Delete {
+            token,
+            thread_id,
+            email,
+        } => {
+            let user_id = if let Some(email) = &*email {
+                match get_user_id(&client, token, email).await {
+                    Ok(it) => it,
+                    Err(e) => {
+                        error!("{}", e.get_message());
+                        return Ok(());
+                    }
+                }
+            } else {
+                None
+            };
+            match delete(&client, &bucket, token, *thread_id, user_id).await {
+                Ok(count) => {
+                    info!("Deleted {} messages", count);
+                }
+                Err(e) => {
+                    error!("{}", e.get_message());
+                }
             }
-        },
-        YammerAction::Delete => match delete(&client, &args.token, user_id).await {
-            Ok(_) => {}
-            Err(e) => {
-                error!("{}", e.get_message());
-            }
-        },
+        }
     }
 
     info!("{} v{} finished", APP_INFO.name, APP_INFO.version);
@@ -151,7 +205,17 @@ async fn get_user_id(client: &Client, token: &str, user_email: &str) -> Result<O
     return Ok(None);
 }
 
-async fn list(client: &Client, token: &str, user_id: Option<u64>) -> Result<()> {
+async fn list(
+    client: &Client,
+    bucket: &Arc<Mutex<TokenBucket>>,
+    token: &str,
+    thread_id: Option<u64>,
+    user_id: Option<u64>,
+) -> Result<u64> {
+    if let Some(thread_id) = thread_id {
+        return list_thread(client, bucket, token, thread_id, user_id).await;
+    }
+
     let mut messages = Vec::new();
     let mut thread_messages = Vec::new();
     let mut has_more = true;
@@ -164,12 +228,12 @@ async fn list(client: &Client, token: &str, user_id: Option<u64>) -> Result<()> 
         has_more = get_messages(
             &mut messages,
             client,
+            bucket,
             token,
             user_id.clone(),
             last_message_id,
         )
         .await?;
-        message_count += messages.len() as u64;
 
         while !messages.is_empty() {
             let message = messages.remove(0);
@@ -177,24 +241,60 @@ async fn list(client: &Client, token: &str, user_id: Option<u64>) -> Result<()> 
             let thread_id = message["thread_id"].as_u64().unwrap();
             info!("Fetching messages for thread {}", thread_id);
 
-            if !get_messages_in_thread(&mut thread_messages, client, token, thread_id).await? {
+            if !get_messages_in_thread(&mut thread_messages, client, bucket, token, thread_id, None)
+                .await?
+            {
                 continue;
             }
 
+            message_count += thread_messages.len() as u64;
             println!("Messages for thread {}", thread_id);
 
-            while !thread_messages.is_empty() {
-                let thread_message = thread_messages.remove(0);
+            while let Some(thread_message) = thread_messages.pop() {
                 print_message(&thread_message);
             }
         }
     }
 
-    info!("Listed {} messages", message_count);
-    return Ok(());
+    return Ok(message_count);
 }
 
-async fn delete(client: &Client, token: &str, user_id: Option<u64>) -> Result<()> {
+async fn list_thread(
+    client: &Client,
+    bucket: &Arc<Mutex<TokenBucket>>,
+    token: &str,
+    thread_id: u64,
+    user_id: Option<u64>,
+) -> Result<u64> {
+    let mut messages = Vec::new();
+
+    info!("Fetching messages for thread {}", thread_id);
+
+    if !get_messages_in_thread(&mut messages, client, bucket, token, thread_id, user_id).await? {
+        return Ok(0);
+    }
+
+    let message_count = messages.len() as u64;
+    println!("Messages for thread {}", thread_id);
+
+    while let Some(message) = messages.pop() {
+        print_message(&message);
+    }
+
+    return Ok(message_count);
+}
+
+async fn delete(
+    client: &Client,
+    bucket: &Arc<Mutex<TokenBucket>>,
+    token: &str,
+    thread_id: Option<u64>,
+    user_id: Option<u64>,
+) -> Result<u64> {
+    if let Some(thread_id) = thread_id {
+        return delete_thread(client, bucket, token, thread_id, user_id).await;
+    }
+
     let mut has_more = true;
     let mut messages: HashMap<u64, Vec<Value>> = HashMap::new();
     let mut q_messages = Vec::new();
@@ -208,6 +308,7 @@ async fn delete(client: &Client, token: &str, user_id: Option<u64>) -> Result<()
         has_more = get_messages(
             &mut q_messages,
             client,
+            bucket,
             token,
             user_id.clone(),
             last_message_id,
@@ -237,7 +338,9 @@ async fn delete(client: &Client, token: &str, user_id: Option<u64>) -> Result<()
             // traverse the message tree and add all messages to the queue.
             info!("Traversing the message tree for thread {}", thread_id);
 
-            if !get_messages_in_thread(&mut qt_messages, client, token, thread_id).await? {
+            if !get_messages_in_thread(&mut qt_messages, client, bucket, token, thread_id, None)
+                .await?
+            {
                 continue;
             }
 
@@ -284,17 +387,53 @@ async fn delete(client: &Client, token: &str, user_id: Option<u64>) -> Result<()
         }
     }
 
-    info!("Deleted {} messages", deleted_messages);
-    return Ok(());
+    return Ok(deleted_messages);
+}
+
+async fn delete_thread(
+    client: &Client,
+    bucket: &Arc<Mutex<TokenBucket>>,
+    token: &str,
+    thread_id: u64,
+    user_id: Option<u64>,
+) -> Result<u64> {
+    let mut messages = Vec::new();
+
+    info!("Fetching messages for thread {}", thread_id);
+
+    if !get_messages_in_thread(&mut messages, client, bucket, token, thread_id, user_id).await? {
+        return Ok(0);
+    }
+
+    let message_count = messages.len() as u64;
+    println!("Messages for thread {}", thread_id);
+
+    while let Some(message) = messages.pop() {
+        print_message(&message);
+    }
+
+    return Ok(message_count);
 }
 
 async fn get_messages(
     collection: &mut Vec<Value>,
     client: &Client,
+    bucket: &Arc<Mutex<TokenBucket>>,
     token: &str,
     user_id: Option<u64>,
     last_message_id: Option<u64>,
 ) -> Result<bool> {
+    // Keep Yammer API rate limit
+    loop {
+        let mut bkt = bucket.lock().await;
+
+        if bkt.take() {
+            break;
+        }
+
+        sleep(Duration::from_secs(1)).await;
+    }
+
     let p_message = if let Some(lmid) = last_message_id {
         format!("&older_than={}", lmid)
     } else {
@@ -350,9 +489,22 @@ async fn get_messages(
 async fn get_messages_in_thread(
     collection: &mut Vec<Value>,
     client: &Client,
+    bucket: &Arc<Mutex<TokenBucket>>,
     token: &str,
     thread_id: u64,
+    user_id: Option<u64>,
 ) -> Result<bool> {
+    // Keep Yammer API rate limit
+    loop {
+        let mut bkt = bucket.lock().await;
+
+        if bkt.take() {
+            break;
+        }
+
+        sleep(Duration::from_secs(1)).await;
+    }
+
     let url = format!("{}messages/in_thread/{}.json", BASE_URL, &thread_id);
     let mut rate_limit_timeout = 5u64;
     let response = loop {
@@ -392,7 +544,9 @@ async fn get_messages_in_thread(
         .as_array()
         .unwrap()
         .iter()
-        .filter(|e| e["sender_type"] == "user")
+        .filter(|e| {
+            e["sender_type"] == "user" && (user_id.is_none() || e["sender_id"].as_u64() == user_id)
+        })
         .cloned();
     collection.extend(messages);
     return Ok(collection.len() > count);
