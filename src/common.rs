@@ -1,3 +1,4 @@
+use clap::{command, ArgGroup, Parser, Subcommand};
 use lazy_static::lazy_static;
 use reqwest_cookie_store::CookieStoreRwLock;
 use rustmix::{
@@ -17,24 +18,82 @@ use std::{
     time::{Duration, Instant},
 };
 
-lazy_static! {
-    pub static ref APP_INFO: AppInfo<'static> = AppInfo::new(
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_PKG_VERSION"),
-        env!("CARGO_PKG_AUTHORS"),
-        Some(env!("CARGO_PKG_DESCRIPTION")),
-        Some(env!("CARGO_PKG_LICENSE")),
-    );
-    pub static ref CURDIR: PathBuf = directory::current();
-    pub static ref LOGDIR: PathBuf = CURDIR.join("_logs");
-    static ref WAIT_TIME: Duration = Duration::from_secs(2);
-}
-
 #[cfg(debug_assertions)]
 pub const TIMEOUT: u64 = 30;
 #[cfg(not(debug_assertions))]
 pub const TIMEOUT: u64 = 5;
 
+pub const BASE_URL: &str = "https://www.yammer.com/api/v1/";
+pub const RATE_LIMIT_TIMEOUT_MAX: u64 = 300;
+
+const ARGSGRP_GROUP_OR_THREAD: &str = "EitherGroupOrThread";
+
+lazy_static! {
+    pub static ref APP_INFO: Arc<AppInfo<'static>> = Arc::new(AppInfo::new(
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_AUTHORS"),
+        Some(env!("CARGO_PKG_DESCRIPTION")),
+        Some(env!("CARGO_PKG_LICENSE")),
+    ));
+    pub static ref CURDIR: PathBuf = directory::current();
+    pub static ref LOGDIR: PathBuf = CURDIR.join("_logs");
+    static ref WAIT_TIME: Duration = Duration::from_secs(2);
+}
+
+#[derive(Debug, Parser)]
+#[command(
+    name = env!("CARGO_PKG_NAME"),
+    version = env!("CARGO_PKG_VERSION"),
+    author = env!("CARGO_PKG_AUTHORS"),
+    about = env!("CARGO_PKG_DESCRIPTION")
+)]
+pub struct Args {
+    /// The action to take on Yammer user's posts.
+    #[command(subcommand)]
+    pub action: Option<YammerAction>,
+    /// Enable debug mode. The build must be a debug build.
+    #[arg(short, long)]
+    pub debug: bool,
+}
+
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum YammerAction {
+    /// List messages.
+    #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
+    List {
+        /// The Yammer application token.
+        #[arg(short, long, required = true)]
+        token: String,
+        /// The message group id. If no group id is provided, all messages will be listed.
+        #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
+        group_id: Option<u64>,
+        /// The message thread id. If no thread id is provided, all messages will be listed.
+        #[arg(short = 'i', long, group = ARGSGRP_GROUP_OR_THREAD)]
+        thread_id: Option<u64>,
+        /// The user email to filter posts.
+        #[arg(short, long)]
+        email: Option<String>,
+    },
+    /// Delete messages.
+    #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
+    Delete {
+        /// The Yammer application token.
+        #[arg(short, long, required = true)]
+        token: String,
+        /// The message group id. If no group id is provided, all messages will be listed.
+        #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
+        group_id: Option<u64>,
+        /// The message thread id. If no thread id is provided, all messages will be deleted.
+        #[arg(short = 'i', long, group = ARGSGRP_GROUP_OR_THREAD)]
+        thread_id: Option<u64>,
+        /// The user email to filter posts.
+        #[arg(short, long)]
+        email: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone)]
 pub struct TokenBucket {
     capacity: usize,
     tokens: usize,
@@ -68,40 +127,18 @@ impl TokenBucket {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectedMessage {
     pub id: u64,
     pub sender_id: u64,
     pub network_id: u64,
     pub group_id: u64,
+    pub group_name: String,
     pub thread_id: u64,
     pub privacy: String,
     pub created_at: String,
     pub body: String,
     pub liked_by: u64,
-}
-
-pub mod output {
-    use super::*;
-
-    pub fn print_header(appinfo: &AppInfo) {
-        println!(
-            r#"
-★····························································★
-      _____   ° _________   _.★    ·               _____.·★
-    ·/  _  \ ★ /   _____/_/  |_  _______ ¤__ __★  /     \  ·
-  ★ /  /_\  \  \_____  \ \   ___\\_  __ \|  |  \ /  \ /  \·
- · /    |    \ /        \ |  | ·  |  | \/|  |  //    Y    \ ★
-   \____|____//_________/ |__|  · |__|★  |____/ \____|____/·
-  ★·.°      ¤        °·★                ¤··•      ★·
-★····························································★
-·★·.·´¯`·.·★ {} v{} ★·.·´¯`·.·★
-·.•°¤*(¯`★´¯)*¤° {} °¤*)¯´★`¯(*¤°•.
-·★ {} ★·
-"#,
-            appinfo.name, appinfo.version, appinfo.authors, appinfo.description
-        );
-    }
 }
 
 pub fn build_compatible_client(cookies: &Arc<CookieStoreRwLock>) -> Result<Client> {
@@ -141,5 +178,28 @@ fn random_ua() -> String {
         0 => random::internet::user_agent().safari().to_string(),
         1 => random::internet::user_agent().firefox().to_string(),
         _ => random::internet::user_agent().chrome().to_string(),
+    }
+}
+
+pub mod output {
+    use super::*;
+
+    pub fn print_header(appinfo: &AppInfo) {
+        println!(
+            r#"
+★····························································★
+      _____   ° _________   _.★    ·               _____.·★
+    ·/  _  \ ★ /   _____/_/  |_  _______ ¤__ __★  /     \  ·
+  ★ /  /_\  \  \_____  \ \   ___\\_  __ \|  |  \ /  \ /  \·
+ · /    |    \ /        \ |  | ·  |  | \/|  |  //    Y    \ ★
+   \____|____//_________/ |__|  · |__|★  |____/ \____|____/·
+  ★·.°      ¤        °·★                ¤··•      ★·
+★····························································★
+·★·.·´¯`·.·★ {} v{} ★·.·´¯`·.·★
+·.•°¤*(¯`★´¯)*¤° {} °¤*)¯´★`¯(*¤°•.
+·★ {} ★·
+"#,
+            appinfo.name, appinfo.version, appinfo.authors, appinfo.description
+        );
     }
 }

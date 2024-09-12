@@ -13,6 +13,7 @@ chrono = "0"
 clap = { version = "4", features = ["derive"] }
 dotenv = "0"
 futures = "0"
+gtk = "0"
 html-entities = "0"
 humantime = "2"
 lazy_static = "1"
