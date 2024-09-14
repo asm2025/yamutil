@@ -57,7 +57,7 @@ pub struct Args {
     pub debug: bool,
 }
 
-#[derive(Subcommand, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
 pub enum YammerAction {
     /// List messages.
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
@@ -74,6 +74,9 @@ pub enum YammerAction {
         /// The user email to filter posts.
         #[arg(short, long)]
         email: Option<String>,
+        /// This will list the full messages' threads.
+        #[arg(short, long)]
+        all: bool,
     },
     /// Delete messages.
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
@@ -90,6 +93,9 @@ pub enum YammerAction {
         /// The user email to filter posts.
         #[arg(short, long)]
         email: Option<String>,
+        /// Message IDs to exclude from deletion.
+        #[arg(short = 'x', long)]
+        exclude: Vec<String>,
     },
 }
 
@@ -128,8 +134,9 @@ impl TokenBucket {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SelectedMessage {
+pub struct YammerMessage {
     pub id: u64,
+    pub replied_to_id: Option<u64>,
     pub sender_id: u64,
     pub network_id: u64,
     pub group_id: u64,
@@ -139,6 +146,7 @@ pub struct SelectedMessage {
     pub created_at: String,
     pub body: String,
     pub liked_by: u64,
+    pub replies: Option<Vec<YammerMessage>>,
 }
 
 pub fn build_compatible_client(cookies: &Arc<CookieStoreRwLock>) -> Result<Client> {

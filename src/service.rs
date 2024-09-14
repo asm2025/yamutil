@@ -3,8 +3,8 @@ use reqwest_cookie_store::{CookieStore, CookieStoreRwLock};
 use rustmix::{error::*, web::reqwest::Client, *};
 use serde_json::Value;
 use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
+    collections::{HashMap, HashSet},
+    sync::Arc,
     time::Duration,
 };
 use tokio::{sync::Mutex, time::sleep};
@@ -254,6 +254,7 @@ impl Service {
         group_id: Option<u64>,
         thread_id: Option<u64>,
         user_id: Option<u64>,
+        exclude: &HashSet<u64>,
     ) -> Result<u64> {
         if let Some(thread_id) = thread_id {
             return self.delete_thread(token, thread_id, user_id).await;
@@ -280,13 +281,13 @@ impl Service {
             while !messages.is_empty() {
                 let message = messages.remove(0);
                 last_message_id = message["id"].as_u64();
+                let message_id = last_message_id.unwrap();
                 let thread_id = message["thread_id"].as_u64().unwrap();
 
-                if self.has_likes(&message) {
+                if exclude.contains(&message_id) && self.has_likes(&message) {
                     info!(
                         "Skipping message '{}' and aborting thread '{}'",
-                        message["id"].as_u64().unwrap(),
-                        thread_id
+                        message_id, thread_id
                     );
                     continue;
                 }
