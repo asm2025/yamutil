@@ -134,6 +134,20 @@ impl TokenBucket {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YammerUser {
+    pub id: u64,
+    pub name: String,
+    pub email: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct YammerGroup {
+    pub id: u64,
+    pub name: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YammerMessage {
     pub id: u64,
     pub replied_to_id: Option<u64>,

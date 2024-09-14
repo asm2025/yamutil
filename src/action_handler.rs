@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -39,13 +39,8 @@ impl ActionHandler {
                 } else {
                     None
                 };
-                let groups = if let Some(user_id) = user_id {
-                    self.service.get_groups(&token, user_id).await?
-                } else {
-                    HashMap::new()
-                };
                 let count = self
-                    .list(&token, *group_id, *thread_id, user_id, &groups, *all)
+                    .list(&token, *group_id, *thread_id, user_id, *all)
                     .await?;
                 info!("Listed {} messages", count);
                 return Ok(());
@@ -85,14 +80,21 @@ impl ActionHandler {
         group_id: Option<u64>,
         thread_id: Option<u64>,
         user_id: Option<u64>,
-        groups: &HashMap<u64, String>,
         all: bool,
     ) -> Result<u64> {
-        if let Some(thread_id) = thread_id {
-            return self.list_thread(token, thread_id, user_id, &groups).await;
+        let mut groups = HashMap::new();
+
+        if let Some(user_id) = user_id {
+            self.service.get_groups(&mut groups, token, user_id).await?;
         }
 
-        let mut messages = Vec::new();
+        if let Some(thread_id) = thread_id {
+            return self
+                .list_thread(token, thread_id, user_id, &mut groups)
+                .await;
+        }
+
+        let mut messages = VecDeque::new();
         let mut has_more = true;
         let mut last_message_id = None;
         let mut count = 0u64;
@@ -102,6 +104,8 @@ impl ActionHandler {
         } else {
             info!("Fetching messages");
         }
+
+        let uid = user_id.unwrap_or(0);
 
         while has_more {
             has_more = self
@@ -115,15 +119,26 @@ impl ActionHandler {
                 )
                 .await?;
 
-            // using remove to print the messages in order (newest to oldest)
-            while !messages.is_empty() {
-                let message = messages.remove(0);
+            // using pop_front to print the messages in order (newest/child to oldest/parent)
+            while let Some(message) = messages.pop_front() {
                 last_message_id = message["id"].as_u64();
 
                 if all {
                     let thread_id = message["thread_id"].as_u64().unwrap();
-                    count += self.list_thread(token, thread_id, user_id, &groups).await?;
+                    count += self
+                        .list_thread(token, thread_id, user_id, &mut groups)
+                        .await?;
                 } else {
+                    let group_id = message["group_id"].as_u64().unwrap();
+
+                    if !groups.contains_key(&group_id) {
+                        let muid = message["sender_id"].as_u64().unwrap();
+
+                        if uid != muid {
+                            self.service.get_groups(&mut groups, token, muid).await?;
+                        }
+                    }
+
                     let message = self.to_yammer_message(&message, &groups);
                     self.print_message(&message);
                     count += 1;
@@ -139,26 +154,35 @@ impl ActionHandler {
         token: &str,
         thread_id: u64,
         user_id: Option<u64>,
-        groups: &HashMap<u64, String>,
+        groups: &mut HashMap<u64, YammerGroup>,
     ) -> Result<u64> {
-        let mut messages = Vec::new();
         info!("Fetching messages for thread {}", thread_id);
-
-        if !self
-            .service
+        let mut messages = VecDeque::new();
+        self.service
             .get_messages_in_thread(&mut messages, token, thread_id, user_id)
-            .await?
-        {
+            .await?;
+
+        if messages.is_empty() {
             return Ok(0);
         }
 
         let count = messages.len() as u64;
         println!("Messages for thread {}", thread_id);
         let mut roots: HashMap<u64, YammerMessage> = HashMap::new();
+        let uid = user_id.unwrap_or(0);
 
-        // using pop to print the messages in reverse order (oldest to newest)
-        while let Some(message) = messages.pop() {
-            let message = self.to_yammer_message(&message, groups);
+        while let Some(message) = messages.pop_back() {
+            let group_id = message["group_id"].as_u64().unwrap();
+
+            if !groups.contains_key(&group_id) {
+                let muid = message["sender_id"].as_u64().unwrap();
+
+                if uid != muid {
+                    self.service.get_groups(groups, token, muid).await?;
+                }
+            }
+
+            let message = self.to_yammer_message(&message, &groups);
             let replied_to_id = message.replied_to_id.unwrap_or(thread_id);
 
             if let Some(root) = roots.get_mut(&replied_to_id) {
@@ -166,7 +190,7 @@ impl ActionHandler {
                     root.replies = Some(Vec::new());
                 }
                 root.replies.as_mut().unwrap().push(message.clone());
-            } else if let Some(root) = self.find_root(&mut roots, replied_to_id) {
+            } else if let Some(root) = find_root(&mut roots, replied_to_id) {
                 if root.replies.is_none() {
                     root.replies = Some(Vec::new());
                 }
@@ -182,48 +206,51 @@ impl ActionHandler {
         }
 
         return Ok(count);
+
+        fn find_root<'a>(
+            roots: &'a mut HashMap<u64, YammerMessage>,
+            replied_to_id: u64,
+        ) -> Option<&'a mut YammerMessage> {
+            if roots.len() == 0 {
+                return None;
+            }
+
+            let mut queue: Vec<&mut YammerMessage> = Vec::new();
+
+            // Put all roots' replies arrays in the queue
+            for root in roots.values_mut() {
+                if let Some(replies) = &mut root.replies {
+                    queue.extend(replies.iter_mut());
+                }
+            }
+
+            // Create a while loop to pop each entry in the queue
+            while let Some(root) = queue.pop() {
+                // Look for a message with an id equals to the replied_to_id
+                if root.id == replied_to_id {
+                    return Some(root);
+                }
+
+                // If the popped message's replies is not None, add the popped message's replies to the queue
+                if let Some(replies) = &mut root.replies {
+                    queue.extend(replies.iter_mut());
+                }
+            }
+
+            None
+        }
     }
 
-    fn find_root<'a>(
+    fn to_yammer_message(
         &self,
-        roots: &'a mut HashMap<u64, YammerMessage>,
-        replied_to_id: u64,
-    ) -> Option<&'a mut YammerMessage> {
-        if roots.len() == 0 {
-            return None;
-        }
-
-        let mut queue: Vec<&mut YammerMessage> = Vec::new();
-
-        // Put all roots' replies arrays in the queue
-        for root in roots.values_mut() {
-            if let Some(replies) = &mut root.replies {
-                queue.extend(replies.iter_mut());
-            }
-        }
-
-        // Create a while loop to pop each entry in the queue
-        while let Some(root) = queue.pop() {
-            // Look for a message with an id equals to the replied_to_id
-            if root.id == replied_to_id {
-                return Some(root);
-            }
-
-            // If the popped message's replies is not None, add the popped message's replies to the queue
-            if let Some(replies) = &mut root.replies {
-                queue.extend(replies.iter_mut());
-            }
-        }
-
-        None
-    }
-
-    fn to_yammer_message(&self, message: &Value, groups: &HashMap<u64, String>) -> YammerMessage {
+        message: &Value,
+        groups: &HashMap<u64, YammerGroup>,
+    ) -> YammerMessage {
         let group_id = message["group_id"].as_u64().unwrap_or(0);
         let group_name_def = group_id.to_string();
         let group_name = groups
             .get(&group_id)
-            .map(|name| name.as_str())
+            .map(|e| &e.display_name)
             .unwrap_or(&group_name_def);
         YammerMessage {
             id: message["id"].as_u64().unwrap_or(0),
@@ -241,10 +268,10 @@ impl ActionHandler {
         }
     }
 
-    // fn print_json(&self, message: &Value) {
-    //     let json = to_string_pretty(&message).unwrap();
-    //     println!("{}", json);
-    // }
+    fn print_json(&self, message: &Value) {
+        let json = to_string_pretty(&message).unwrap();
+        println!("{}", json);
+    }
 
     fn print_message(&self, message: &YammerMessage) {
         let json = to_string_pretty(&message).unwrap();

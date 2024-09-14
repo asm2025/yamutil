@@ -35,3 +35,7 @@ pub struct InvalidEmailError;
 #[derive(Error, Debug)]
 #[error("Application exited with error {0}")]
 pub struct ExitCodeError(pub i32);
+
+#[derive(Error, Debug)]
+#[error("Invalid value format.")]
+pub struct ParseError;
