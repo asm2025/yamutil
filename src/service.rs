@@ -328,34 +328,13 @@ impl Service {
 
             let id = message["id"].as_u64().unwrap();
             let url = format!("{}messages/{}.json", BASE_URL, &id);
-            let mut rate_limit_timeout = 5u64;
-            let response = loop {
-                match self
-                    .client
-                    .delete(&url)
-                    .header("authorization", format!("Bearer {}", &token))
-                    .send()
-                    .await
-                {
-                    Ok(it) => {
-                        if it.status() == 429 {
-                            if rate_limit_timeout > RATE_LIMIT_TIMEOUT_MAX {
-                                return Err(RateLimitTimeoutExceededError.into());
-                            }
-                            warn!(
-                                "Rate limit exceeded. Waiting for {} seconds",
-                                rate_limit_timeout
-                            );
-                            sleep(Duration::from_secs(rate_limit_timeout)).await;
-                            rate_limit_timeout = rate_limit_timeout + 5;
-                            continue;
-                        } else {
-                            break it;
-                        }
-                    }
-                    Err(e) => return Err(e.into()),
-                }
-            };
+            let response = self
+                .send_with_rate_limit(
+                    self.client
+                        .delete(&url)
+                        .header("authorization", format!("Bearer {}", &token)),
+                )
+                .await?;
 
             if !response.status().is_success() {
                 error!(
