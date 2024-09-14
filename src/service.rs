@@ -257,7 +257,7 @@ impl Service {
         let mut groups = HashMap::new();
 
         if let Some(user_id) = user_id {
-            self.service.get_groups(&mut groups, token, user_id).await?;
+            self.get_groups(&mut groups, token, user_id).await?;
         }
 
         if let Some(thread_id) = thread_id {
