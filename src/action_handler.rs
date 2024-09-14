@@ -5,7 +5,6 @@ use std::{
 
 use log::{error, info};
 use rustmix::{error::*, *};
-use serde_json::{to_string_pretty, Value};
 
 use crate::{common::*, service::*};
 
@@ -139,8 +138,8 @@ impl ActionHandler {
                         }
                     }
 
-                    let message = self.to_yammer_message(&message, &groups);
-                    self.print_message(&message);
+                    let message = to_yammer_message(&message, &groups);
+                    print_message(&message);
                     count += 1;
                 }
             }
@@ -182,7 +181,7 @@ impl ActionHandler {
                 }
             }
 
-            let message = self.to_yammer_message(&message, &groups);
+            let message = to_yammer_message(&message, &groups);
             let replied_to_id = message.replied_to_id.unwrap_or(thread_id);
 
             if let Some(root) = roots.get_mut(&replied_to_id) {
@@ -202,7 +201,7 @@ impl ActionHandler {
         }
 
         for message in roots.values() {
-            self.print_message(message)
+            print_message(message)
         }
 
         return Ok(count);
@@ -239,42 +238,5 @@ impl ActionHandler {
 
             None
         }
-    }
-
-    fn to_yammer_message(
-        &self,
-        message: &Value,
-        groups: &HashMap<u64, YammerGroup>,
-    ) -> YammerMessage {
-        let group_id = message["group_id"].as_u64().unwrap_or(0);
-        let group_name_def = group_id.to_string();
-        let group_name = groups
-            .get(&group_id)
-            .map(|e| &e.display_name)
-            .unwrap_or(&group_name_def);
-        YammerMessage {
-            id: message["id"].as_u64().unwrap_or(0),
-            replied_to_id: message["replied_to_id"].as_u64(),
-            sender_id: message["sender_id"].as_u64().unwrap_or(0),
-            network_id: message["network_id"].as_u64().unwrap_or(0),
-            group_id: group_id,
-            group_name: group_name.to_owned(),
-            thread_id: message["thread_id"].as_u64().unwrap_or(0),
-            privacy: message["privacy"].as_str().unwrap().to_owned(),
-            created_at: message["created_at"].as_str().unwrap().to_owned(),
-            body: message["body"]["rich"].as_str().unwrap().to_owned(),
-            liked_by: message["liked_by"]["count"].as_u64().unwrap_or(0),
-            replies: None,
-        }
-    }
-
-    fn print_json(&self, message: &Value) {
-        let json = to_string_pretty(&message).unwrap();
-        println!("{}", json);
-    }
-
-    fn print_message(&self, message: &YammerMessage) {
-        let json = to_string_pretty(&message).unwrap();
-        println!("{}", json);
     }
 }

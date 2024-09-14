@@ -7,7 +7,7 @@ use rustmix::{
 };
 use serde_json::Value;
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
     time::Duration,
 };
@@ -254,16 +254,31 @@ impl Service {
         user_id: Option<u64>,
         exclude: &HashSet<u64>,
     ) -> Result<u64> {
+        let mut groups = HashMap::new();
+
+        if let Some(user_id) = user_id {
+            self.service.get_groups(&mut groups, token, user_id).await?;
+        }
+
         if let Some(thread_id) = thread_id {
-            return self.delete_thread(token, thread_id, user_id).await;
+            return self
+                .delete_thread(token, thread_id, user_id, &mut groups)
+                .await;
         }
 
         // rate limit already taken in get_messages
-        info!("Fetching messages for deletion");
         let mut messages = VecDeque::new();
         let mut has_more = true;
         let mut last_message_id = None;
         let mut count = 0u64;
+
+        if let Some(group_id) = group_id {
+            info!("Fetching messages for deletion in group '{}'", group_id);
+        } else {
+            info!("Fetching messages for deletion");
+        }
+
+        let uid = user_id.unwrap_or(0);
 
         while has_more {
             has_more = self
@@ -289,7 +304,19 @@ impl Service {
                     continue;
                 }
 
-                count += self.delete_thread(token, thread_id, user_id).await?;
+                let group_id = message["group_id"].as_u64().unwrap();
+
+                if !groups.contains_key(&group_id) {
+                    let muid = message["sender_id"].as_u64().unwrap();
+
+                    if uid != muid {
+                        self.get_groups(&mut groups, token, muid).await?;
+                    }
+                }
+
+                count += self
+                    .delete_thread(token, thread_id, user_id, &mut groups)
+                    .await?;
             }
         }
 
@@ -301,6 +328,7 @@ impl Service {
         token: &str,
         thread_id: u64,
         user_id: Option<u64>,
+        groups: &mut HashMap<u64, YammerGroup>,
     ) -> Result<u64> {
         // rate limit already taken in get_messages_in_thread
         info!("Fetching messages for thread {} for deletion", thread_id);
@@ -326,8 +354,8 @@ impl Service {
                 break;
             }
 
-            let id = message["id"].as_u64().unwrap();
-            let url = format!("{}messages/{}.json", BASE_URL, &id);
+            let message = to_yammer_message(&message, groups);
+            let url = format!("{}messages/{}.json", BASE_URL, &message.id);
             let response = self
                 .send_with_rate_limit(
                     self.client
@@ -339,12 +367,13 @@ impl Service {
             if !response.status().is_success() {
                 error!(
                     "Error deleting message '{}': {}",
-                    &id,
+                    &message.id,
                     response.text().await?
                 );
                 continue;
             }
-            info!("Deleted message '{}'", &id);
+            info!("Deleted message '{}'", &message.id);
+            print_message(&message);
             count += 1;
         }
 

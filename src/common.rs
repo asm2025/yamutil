@@ -12,7 +12,9 @@ use rustmix::{
     AppInfo, Result,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::{to_string_pretty, Value};
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -163,6 +165,29 @@ pub struct YammerMessage {
     pub replies: Option<Vec<YammerMessage>>,
 }
 
+pub fn to_yammer_message(message: &Value, groups: &HashMap<u64, YammerGroup>) -> YammerMessage {
+    let group_id = message["group_id"].as_u64().unwrap_or(0);
+    let group_name_def = group_id.to_string();
+    let group_name = groups
+        .get(&group_id)
+        .map(|e| &e.display_name)
+        .unwrap_or(&group_name_def);
+    YammerMessage {
+        id: message["id"].as_u64().unwrap_or(0),
+        replied_to_id: message["replied_to_id"].as_u64(),
+        sender_id: message["sender_id"].as_u64().unwrap_or(0),
+        network_id: message["network_id"].as_u64().unwrap_or(0),
+        group_id: group_id,
+        group_name: group_name.to_owned(),
+        thread_id: message["thread_id"].as_u64().unwrap_or(0),
+        privacy: message["privacy"].as_str().unwrap().to_owned(),
+        created_at: message["created_at"].as_str().unwrap().to_owned(),
+        body: message["body"]["rich"].as_str().unwrap().to_owned(),
+        liked_by: message["liked_by"]["count"].as_u64().unwrap_or(0),
+        replies: None,
+    }
+}
+
 pub fn build_compatible_client(cookies: &Arc<CookieStoreRwLock>) -> Result<Client> {
     cookies.write().unwrap().clear();
 
@@ -201,6 +226,16 @@ fn random_ua() -> String {
         1 => random::internet::user_agent().firefox().to_string(),
         _ => random::internet::user_agent().chrome().to_string(),
     }
+}
+
+pub fn print_json(message: &Value) {
+    let json = to_string_pretty(&message).unwrap();
+    println!("{}", json);
+}
+
+pub fn print_message(message: &YammerMessage) {
+    let json = to_string_pretty(&message).unwrap();
+    println!("{}", json);
 }
 
 pub mod output {
