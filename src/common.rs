@@ -65,13 +65,13 @@ pub enum YammerAction {
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
     List {
         /// The Yammer application token.
-        #[arg(short, long, required = true)]
+        #[arg(short = 'k', long, required = true)]
         token: String,
         /// The message group id. If no group id is provided, all messages will be listed.
         #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
         group_id: Option<u64>,
         /// The message thread id. If no thread id is provided, all messages will be listed.
-        #[arg(short = 'i', long, group = ARGSGRP_GROUP_OR_THREAD)]
+        #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
         thread_id: Option<u64>,
         /// The user email to filter posts.
         #[arg(short, long)]
@@ -84,13 +84,13 @@ pub enum YammerAction {
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
     Delete {
         /// The Yammer application token.
-        #[arg(short, long, required = true)]
+        #[arg(short = 'k', long, required = true)]
         token: String,
         /// The message group id. If no group id is provided, all messages will be listed.
         #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
         group_id: Option<u64>,
         /// The message thread id. If no thread id is provided, all messages will be deleted.
-        #[arg(short = 'i', long, group = ARGSGRP_GROUP_OR_THREAD)]
+        #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
         thread_id: Option<u64>,
         /// The user email to filter posts.
         #[arg(short, long)]
@@ -165,26 +165,32 @@ pub struct YammerMessage {
     pub replies: Option<Vec<YammerMessage>>,
 }
 
-pub fn to_yammer_message(message: &Value, groups: &HashMap<u64, YammerGroup>) -> YammerMessage {
-    let group_id = message["group_id"].as_u64().unwrap_or(0);
-    let group_name_def = group_id.to_string();
-    let group_name = groups
-        .get(&group_id)
-        .map(|e| &e.display_name)
-        .unwrap_or(&group_name_def);
-    YammerMessage {
-        id: message["id"].as_u64().unwrap_or(0),
-        replied_to_id: message["replied_to_id"].as_u64(),
-        sender_id: message["sender_id"].as_u64().unwrap_or(0),
-        network_id: message["network_id"].as_u64().unwrap_or(0),
-        group_id: group_id,
-        group_name: group_name.to_owned(),
-        thread_id: message["thread_id"].as_u64().unwrap_or(0),
-        privacy: message["privacy"].as_str().unwrap().to_owned(),
-        created_at: message["created_at"].as_str().unwrap().to_owned(),
-        body: message["body"]["rich"].as_str().unwrap().to_owned(),
-        liked_by: message["liked_by"]["count"].as_u64().unwrap_or(0),
-        replies: None,
+impl YammerMessage {
+    pub fn is_thread(&self) -> bool {
+        self.replied_to_id.is_none()
+    }
+
+    pub fn from_json(message: &Value, groups: &HashMap<u64, YammerGroup>) -> Self {
+        let group_id = message["group_id"].as_u64().unwrap_or(0);
+        let group_name_def = group_id.to_string();
+        let group_name = groups
+            .get(&group_id)
+            .map(|e| &e.display_name)
+            .unwrap_or(&group_name_def);
+        YammerMessage {
+            id: message["id"].as_u64().unwrap_or(0),
+            replied_to_id: message["replied_to_id"].as_u64(),
+            sender_id: message["sender_id"].as_u64().unwrap_or(0),
+            network_id: message["network_id"].as_u64().unwrap_or(0),
+            group_id: group_id,
+            group_name: group_name.to_owned(),
+            thread_id: message["thread_id"].as_u64().unwrap_or(0),
+            privacy: message["privacy"].as_str().unwrap().to_owned(),
+            created_at: message["created_at"].as_str().unwrap().to_owned(),
+            body: message["body"]["rich"].as_str().unwrap().to_owned(),
+            liked_by: message["liked_by"]["count"].as_u64().unwrap_or(0),
+            replies: None,
+        }
     }
 }
 
@@ -228,16 +234,6 @@ fn random_ua() -> String {
     }
 }
 
-pub fn print_json(message: &Value) {
-    let json = to_string_pretty(&message).unwrap();
-    println!("{}", json);
-}
-
-pub fn print_message(message: &YammerMessage) {
-    let json = to_string_pretty(&message).unwrap();
-    println!("{}", json);
-}
-
 pub mod output {
     use super::*;
 
@@ -258,5 +254,15 @@ pub mod output {
 "#,
             appinfo.name, appinfo.version, appinfo.authors, appinfo.description
         );
+    }
+
+    pub fn print_json(message: &Value) {
+        let json = to_string_pretty(&message).unwrap();
+        println!("{}", json);
+    }
+
+    pub fn print_message(message: &YammerMessage) {
+        let json = to_string_pretty(&message).unwrap();
+        println!("{}", json);
     }
 }

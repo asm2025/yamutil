@@ -138,8 +138,8 @@ impl ActionHandler {
                         }
                     }
 
-                    let message = to_yammer_message(&message, &groups);
-                    print_message(&message);
+                    let message = YammerMessage::from_json(&message, &groups);
+                    output::print_message(&message);
                     count += 1;
                 }
             }
@@ -181,7 +181,7 @@ impl ActionHandler {
                 }
             }
 
-            let message = to_yammer_message(&message, &groups);
+            let message = YammerMessage::from_json(&message, &groups);
             let replied_to_id = message.replied_to_id.unwrap_or(thread_id);
 
             if let Some(root) = roots.get_mut(&replied_to_id) {
@@ -201,7 +201,7 @@ impl ActionHandler {
         }
 
         for message in roots.values() {
-            print_message(message)
+            output::print_message(message)
         }
 
         return Ok(count);

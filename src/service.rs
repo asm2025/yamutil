@@ -72,6 +72,7 @@ impl Service {
         return Err(InvalidEmailError.into());
     }
 
+    #[allow(dead_code)]
     pub async fn get_users<C>(
         &self,
         collection: &mut C,
@@ -296,7 +297,7 @@ impl Service {
                 let message_id = last_message_id.unwrap();
                 let thread_id = message["thread_id"].as_u64().unwrap();
 
-                if exclude.contains(&message_id) || self.has_likes(&message) {
+                if exclude.contains(&message_id) || self.has_likes(&message, user_id) {
                     info!(
                         "Skipping message '{}' and aborting thread '{}'",
                         message_id, thread_id
@@ -333,7 +334,8 @@ impl Service {
         // rate limit already taken in get_messages_in_thread
         info!("Fetching messages for thread {} for deletion", thread_id);
         let mut messages = VecDeque::new();
-        self.get_messages_in_thread(&mut messages, token, thread_id, user_id)
+        // We will get ALL messages in the thread, not just the user's messages because we have to skip threads with likes and qothers' messages
+        self.get_messages_in_thread(&mut messages, token, thread_id, None)
             .await?;
 
         if messages.is_empty() {
@@ -345,7 +347,10 @@ impl Service {
 
         // using pop_front to delete the messages in order (newest/child to oldest/parent)
         while let Some(message) = messages.pop_front() {
-            if self.has_likes(&message) {
+            // We will only delete the user's messages that has no interactions
+            if self.has_likes(&message, user_id)
+                || (user_id.is_some() && message["sender_id"].as_u64() != user_id)
+            {
                 info!(
                     "Skipping message '{}' and aborting thread '{}'",
                     message["id"].as_u64().unwrap(),
@@ -354,7 +359,7 @@ impl Service {
                 break;
             }
 
-            let message = to_yammer_message(&message, groups);
+            let message = YammerMessage::from_json(&message, groups);
             let url = format!("{}messages/{}.json", BASE_URL, &message.id);
             let response = self
                 .send_with_rate_limit(
@@ -370,19 +375,35 @@ impl Service {
                     &message.id,
                     response.text().await?
                 );
-                continue;
+                info!(
+                    "Skipping message '{}' and aborting thread '{}'",
+                    &message.id, thread_id
+                );
+                break;
             }
             info!("Deleted message '{}'", &message.id);
-            print_message(&message);
+            output::print_message(&message);
             count += 1;
         }
 
         return Ok(count);
     }
 
-    pub fn has_likes(&self, message: &Value) -> bool {
+    pub fn has_likes(&self, message: &Value, user_id: Option<u64>) -> bool {
         let liked_by = message["liked_by"]["count"].as_u64().unwrap_or(0);
-        return liked_by > 0;
+
+        if liked_by == 0 {
+            return false;
+        } else if user_id.is_none() {
+            return true;
+        }
+
+        let liked_by = message["liked_by"]["names"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["user_id"].as_u64() != user_id);
+        return liked_by;
     }
 
     async fn send_with_rate_limit(&self, request: RequestBuilder) -> Result<Response> {
