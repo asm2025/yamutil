@@ -9,11 +9,12 @@ license = "MIT/Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+gtk = { package = "gtk4", version = "0" }
+relm = { package = "relm4", version = "0" }
 chrono = "0"
 clap = { version = "4", features = ["derive"] }
 dotenv = "0"
 futures = "0"
-gtk = "0"
 html-entities = "0"
 humantime = "2"
 lazy_static = "1"
@@ -30,15 +31,6 @@ tokio = { version = "1", features = ["full"] }
 thiserror = "1"
 url = { version = "2", features = ["serde"] }
 urlencoding = "2"
-
-[workspace.dependencies]
-candle-core = { version = "0" }
-candle-nn = { version = "0" }
-candle-transformers = { version = "0" }
-candle-datasets = { version = "0" }
-llm-samplers = "=0.0.7"
-parking_lot = "0"
-tokenizers = "0"
 
 [profile.dist]
 inherits = "release"
@@ -59,3 +51,7 @@ check = "cargo check"
 build = "cargo build"
 release = "cargo build --release"
 features = "cargo feature %1"
+chrono = "0"
+clap = { version = "4", features = ["derive"] }
+dotenv = "0"
+futures = "0"
