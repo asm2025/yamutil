@@ -165,6 +165,7 @@ pub struct YammerMessage {
     pub replies: Option<Vec<YammerMessage>>,
 }
 
+#[allow(dead_code)]
 impl YammerMessage {
     pub fn is_thread(&self) -> bool {
         self.replied_to_id.is_none()
@@ -234,6 +235,7 @@ fn random_ua() -> String {
     }
 }
 
+#[allow(dead_code)]
 pub mod output {
     use super::*;
 
