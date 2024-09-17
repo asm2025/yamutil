@@ -2,6 +2,7 @@ use clap::{command, ArgGroup, Parser, Subcommand};
 use lazy_static::lazy_static;
 use reqwest_cookie_store::CookieStoreRwLock;
 use rustmix::{
+    error::*,
     io::directory,
     random,
     web::reqwest::{
@@ -20,13 +21,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub const APP_ID: &str = "com.github.asm.yamutil";
+
 #[cfg(debug_assertions)]
 pub const TIMEOUT: u64 = 30;
 #[cfg(not(debug_assertions))]
 pub const TIMEOUT: u64 = 5;
-
-pub const BASE_URL: &str = "https://www.yammer.com/api/v1/";
-pub const RATE_LIMIT_TIMEOUT_MAX: u64 = 300;
 
 const ARGSGRP_GROUP_OR_THREAD: &str = "EitherGroupOrThread";
 
@@ -51,12 +51,24 @@ lazy_static! {
     about = env!("CARGO_PKG_DESCRIPTION")
 )]
 pub struct Args {
-    /// The action to take on Yammer user's posts.
-    #[command(subcommand)]
-    pub action: Option<YammerAction>,
+    /// The Yammer application token.
+    #[arg(short = 'k', long)]
+    pub token: Option<String>,
     /// Enable debug mode. The build must be a debug build.
     #[arg(short, long)]
     pub debug: bool,
+    /// The action to take on Yammer user's posts.
+    #[command(subcommand)]
+    pub action: Option<YammerAction>,
+}
+
+impl Args {
+    pub fn validate(&self) -> Result<()> {
+        if self.action.is_some() && self.token.is_none() {
+            return Err(ArgumentMissingError("Token is required for action".to_owned()).into());
+        }
+        Ok(())
+    }
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -64,9 +76,6 @@ pub enum YammerAction {
     /// List messages.
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
     List {
-        /// The Yammer application token.
-        #[arg(short = 'k', long, required = true)]
-        token: String,
         /// The message group id. If no group id is provided, all messages will be listed.
         #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
         group_id: Option<u64>,
@@ -83,9 +92,6 @@ pub enum YammerAction {
     /// Delete messages.
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
     Delete {
-        /// The Yammer application token.
-        #[arg(short = 'k', long, required = true)]
-        token: String,
         /// The message group id. If no group id is provided, all messages will be listed.
         #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
         group_id: Option<u64>,

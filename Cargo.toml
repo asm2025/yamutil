@@ -10,8 +10,6 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 gtk = { package = "gtk4", version = "0" }
-relm = { package = "relm4", version = "0" }
-relm-components = { package = "relm4-components", version = "0" }
 chrono = "0"
 clap = { version = "4", features = ["derive"] }
 dotenv = "0"

@@ -15,6 +15,10 @@ use tokio::{sync::Mutex, time::sleep};
 
 use crate::{common::*, error::*};
 
+const BASE_URL: &str = "https://www.yammer.com/api/v1/";
+const RLT_10: u64 = 10;
+const RLT_30: u64 = 30;
+
 #[derive(Debug, Clone)]
 pub struct Service {
     client: Arc<Client>,
@@ -50,6 +54,7 @@ impl Service {
                 self.client
                     .get(&url)
                     .header("authorization", format!("Bearer {}", &token)),
+                RLT_10,
             )
             .await?;
 
@@ -96,6 +101,7 @@ impl Service {
                 self.client
                     .get(&url)
                     .header("authorization", format!("Bearer {}", &token)),
+                RLT_10,
             )
             .await?;
 
@@ -132,6 +138,7 @@ impl Service {
                 self.client
                     .get(&url)
                     .header("authorization", format!("Bearer {}", &token)),
+                RLT_10,
             )
             .await?;
 
@@ -187,6 +194,7 @@ impl Service {
                 self.client
                     .get(&url)
                     .header("authorization", format!("Bearer {}", &token)),
+                RLT_10,
             )
             .await?;
 
@@ -226,6 +234,7 @@ impl Service {
                 self.client
                     .get(&url)
                     .header("authorization", format!("Bearer {}", &token)),
+                RLT_10,
             )
             .await?;
 
@@ -366,6 +375,7 @@ impl Service {
                     self.client
                         .delete(&url)
                         .header("authorization", format!("Bearer {}", &token)),
+                    RLT_30,
                 )
                 .await?;
 
@@ -406,7 +416,11 @@ impl Service {
         return liked_by;
     }
 
-    async fn send_with_rate_limit(&self, request: RequestBuilder) -> Result<Response> {
+    async fn send_with_rate_limit(
+        &self,
+        request: RequestBuilder,
+        rate_limit: u64,
+    ) -> Result<Response> {
         loop {
             let mut bkt = self.bucket.lock().await;
 
@@ -417,21 +431,18 @@ impl Service {
             sleep(Duration::from_secs(1)).await;
         }
 
-        let mut rate_limit_timeout = 5u64;
+        let mut tries = 0;
         let response = loop {
             let req = request.try_clone().expect("Failed to clone request");
             match req.send().await {
                 Ok(it) => {
                     if it.status() == 429 {
-                        if rate_limit_timeout > RATE_LIMIT_TIMEOUT_MAX {
+                        if tries > 3 {
                             return Err(RateLimitTimeoutExceededError.into());
                         }
-                        warn!(
-                            "Rate limit exceeded. Waiting for {} seconds",
-                            rate_limit_timeout
-                        );
-                        sleep(Duration::from_secs(rate_limit_timeout)).await;
-                        rate_limit_timeout = rate_limit_timeout + 5;
+                        warn!("Rate limit exceeded. Waiting for {} seconds", rate_limit);
+                        sleep(Duration::from_secs(rate_limit)).await;
+                        tries += 1;
                         continue;
                     } else {
                         break it;

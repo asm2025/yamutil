@@ -17,11 +17,10 @@ impl ActionHandler {
         Self { service }
     }
 
-    pub async fn process(&self, action: &YammerAction) -> Result<()> {
+    pub async fn process(&self, token: &String, action: &YammerAction) -> Result<()> {
         output::print_header(&APP_INFO);
         match action {
             YammerAction::List {
-                token,
                 group_id,
                 thread_id,
                 email,
@@ -45,7 +44,6 @@ impl ActionHandler {
                 return Ok(());
             }
             YammerAction::Delete {
-                token,
                 group_id,
                 thread_id,
                 email,
