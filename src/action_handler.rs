@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, VecDeque},
     sync::Arc,
 };
 
@@ -20,6 +20,16 @@ impl ActionHandler {
     pub async fn process(&self, token: &String, action: &YammerAction) -> Result<()> {
         output::print_header(&APP_INFO);
         match action {
+            YammerAction::User { user_id } => {
+                let user = self.service.get_user_info(&token, *user_id).await?;
+                output::print_user(&user);
+                return Ok(());
+            }
+            YammerAction::Users { group_id } => {
+                let count = self.users(&token, *group_id).await?;
+                info!("Listed {} users", count);
+                return Ok(());
+            }
             YammerAction::List {
                 group_id,
                 thread_id,
@@ -60,7 +70,7 @@ impl ActionHandler {
                 } else {
                     None
                 };
-                let exclude: HashSet<u64> = exclude.iter().map(|id| id.parse().unwrap()).collect();
+                let exclude = parse_excludes(exclude);
                 let count = self
                     .service
                     .delete(&token, *group_id, *thread_id, user_id, &exclude)
@@ -82,7 +92,9 @@ impl ActionHandler {
         let mut groups = HashMap::new();
 
         if let Some(user_id) = user_id {
-            self.service.get_groups(&mut groups, token, user_id).await?;
+            self.service
+                .get_user_groups(&mut groups, token, user_id)
+                .await?;
         }
 
         if let Some(thread_id) = thread_id {
@@ -132,7 +144,9 @@ impl ActionHandler {
                         let muid = message["sender_id"].as_u64().unwrap();
 
                         if uid != muid {
-                            self.service.get_groups(&mut groups, token, muid).await?;
+                            self.service
+                                .get_user_groups(&mut groups, token, muid)
+                                .await?;
                         }
                     }
 
@@ -175,7 +189,7 @@ impl ActionHandler {
                 let muid = message["sender_id"].as_u64().unwrap();
 
                 if uid != muid {
-                    self.service.get_groups(groups, token, muid).await?;
+                    self.service.get_user_groups(groups, token, muid).await?;
                 }
             }
 
@@ -236,5 +250,40 @@ impl ActionHandler {
 
             None
         }
+    }
+
+    async fn users(&self, token: &str, group_id: Option<u64>) -> Result<usize> {
+        let mut users: HashMap<u64, YammerUser> = HashMap::new();
+        let mut page = 1;
+
+        if let Some(group_id) = group_id {
+            info!("Fetching users in group '{}'", group_id);
+
+            while self
+                .service
+                .get_group_users(&mut users, &token, group_id, page)
+                .await
+                .is_ok()
+            {
+                page += 1;
+            }
+        } else {
+            info!("Fetching users");
+
+            while self
+                .service
+                .get_users(&mut users, &token, page, 100)
+                .await
+                .is_ok()
+            {
+                page += 1;
+            }
+        }
+
+        for user in users.values() {
+            output::print_user(user);
+        }
+
+        return Ok(users.len());
     }
 }

@@ -15,7 +15,7 @@ use rustmix::{
 use serde::{Deserialize, Serialize};
 use serde_json::{to_string_pretty, Value};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -73,6 +73,18 @@ impl Args {
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
 pub enum YammerAction {
+    /// Get user info.
+    User {
+        /// The user id.
+        #[arg(short, long)]
+        user_id: u64,
+    },
+    /// List users.
+    Users {
+        /// The group id. If no group id is provided, all users will be listed.
+        #[arg(short, long)]
+        group_id: Option<u64>,
+    },
     /// List messages.
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
     List {
@@ -103,7 +115,7 @@ pub enum YammerAction {
         email: Option<String>,
         /// Message IDs to exclude from deletion.
         #[arg(short = 'x', long)]
-        exclude: Vec<String>,
+        exclude: String,
     },
 }
 
@@ -179,18 +191,17 @@ impl YammerMessage {
 
     pub fn from_json(message: &Value, groups: &HashMap<u64, YammerGroup>) -> Self {
         let group_id = message["group_id"].as_u64().unwrap_or(0);
-        let group_name_def = group_id.to_string();
         let group_name = groups
             .get(&group_id)
-            .map(|e| &e.display_name)
-            .unwrap_or(&group_name_def);
+            .map(|e| e.display_name.to_owned())
+            .unwrap_or(group_id.to_string());
         YammerMessage {
             id: message["id"].as_u64().unwrap_or(0),
             replied_to_id: message["replied_to_id"].as_u64(),
             sender_id: message["sender_id"].as_u64().unwrap_or(0),
             network_id: message["network_id"].as_u64().unwrap_or(0),
             group_id: group_id,
-            group_name: group_name.to_owned(),
+            group_name: group_name,
             thread_id: message["thread_id"].as_u64().unwrap_or(0),
             privacy: message["privacy"].as_str().unwrap().to_owned(),
             created_at: message["created_at"].as_str().unwrap().to_owned(),
@@ -241,6 +252,18 @@ fn random_ua() -> String {
     }
 }
 
+pub fn parse_excludes(exclude: &str) -> HashSet<u64> {
+    if exclude.is_empty() {
+        return HashSet::new();
+    }
+    exclude
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.parse().unwrap())
+        .collect()
+}
+
 #[allow(dead_code)]
 pub mod output {
     use super::*;
@@ -264,8 +287,13 @@ pub mod output {
         );
     }
 
-    pub fn print_json(message: &Value) {
-        let json = to_string_pretty(&message).unwrap();
+    pub fn print_json(value: &Value) {
+        let json = to_string_pretty(&value).unwrap();
+        println!("{}", json);
+    }
+
+    pub fn print_user(user: &YammerUser) {
+        let json = to_string_pretty(&user).unwrap();
         println!("{}", json);
     }
 

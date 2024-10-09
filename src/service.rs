@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use log::{error, info, warn};
 use reqwest_cookie_store::{CookieStore, CookieStoreRwLock};
 use rustmix::{
@@ -13,7 +14,7 @@ use std::{
 };
 use tokio::{sync::Mutex, time::sleep};
 
-use crate::{common::*, error::*};
+use crate::common::*;
 
 const BASE_URL: &str = "https://www.yammer.com/api/v1/";
 const RLT_10: u64 = 10;
@@ -77,13 +78,36 @@ impl Service {
         return Err(InvalidEmailError.into());
     }
 
-    #[allow(dead_code)]
+    pub async fn get_user_info(&self, token: &str, user_id: u64) -> Result<YammerUser> {
+        info!("Fetching user information for id '{}'", user_id);
+        let url = format!("{}users/{}.json", BASE_URL, user_id);
+        let response = self
+            .send_with_rate_limit(
+                self.client
+                    .get(&url)
+                    .header("authorization", format!("Bearer {}", &token)),
+                RLT_10,
+            )
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(response.error_for_status().unwrap_err().into());
+        }
+
+        let json = response.json::<Value>().await?;
+        Ok(YammerUser {
+            id: json["id"].as_u64().unwrap(),
+            name: json["full_name"].as_str().unwrap().to_string(),
+            email: json["email"].as_str().unwrap().to_string(),
+        })
+    }
+
     pub async fn get_users<C>(
         &self,
         collection: &mut C,
         token: &str,
-        page: i32,
-        num_per_page: i32,
+        page: u32,
+        num_per_page: u32,
     ) -> Result<()>
     where
         C: Extend<(u64, YammerUser)> + Send,
@@ -127,7 +151,12 @@ impl Service {
         Ok(())
     }
 
-    pub async fn get_groups<C>(&self, collection: &mut C, token: &str, user_id: u64) -> Result<()>
+    pub async fn get_user_groups<C>(
+        &self,
+        collection: &mut C,
+        token: &str,
+        user_id: u64,
+    ) -> Result<()>
     where
         C: Extend<(u64, YammerGroup)> + Send,
     {
@@ -161,6 +190,49 @@ impl Service {
                 (group.id, group)
             });
         collection.extend(groups);
+        Ok(())
+    }
+
+    pub async fn get_group_users<C>(
+        &self,
+        collection: &mut C,
+        token: &str,
+        group_id: u64,
+        page: u32,
+    ) -> Result<()>
+    where
+        C: Extend<(u64, YammerUser)> + Send,
+    {
+        info!("Fetching users in group {} for page {}", group_id, page);
+        let url = format!("{}users/in_group/{}.json&page={}", BASE_URL, group_id, page);
+        let response = self
+            .send_with_rate_limit(
+                self.client
+                    .get(&url)
+                    .header("authorization", format!("Bearer {}", &token)),
+                RLT_10,
+            )
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(response.error_for_status().unwrap_err().into());
+        }
+
+        let json = response.json::<Value>().await?;
+        let users = json
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["type"] == "user")
+            .map(|e| {
+                let user = YammerUser {
+                    id: e["id"].as_u64().unwrap(),
+                    name: e["full_name"].as_str().unwrap().to_string(),
+                    email: e["email"].as_str().unwrap().to_string(),
+                };
+                (user.id, user)
+            });
+        collection.extend(users);
         Ok(())
     }
 
@@ -267,7 +339,7 @@ impl Service {
         let mut groups = HashMap::new();
 
         if let Some(user_id) = user_id {
-            self.get_groups(&mut groups, token, user_id).await?;
+            self.get_user_groups(&mut groups, token, user_id).await?;
         }
 
         if let Some(thread_id) = thread_id {
@@ -320,7 +392,7 @@ impl Service {
                     let muid = message["sender_id"].as_u64().unwrap();
 
                     if uid != muid {
-                        self.get_groups(&mut groups, token, muid).await?;
+                        self.get_user_groups(&mut groups, token, muid).await?;
                     }
                 }
 
@@ -404,7 +476,9 @@ impl Service {
 
         if liked_by == 0 {
             return false;
-        } else if user_id.is_none() {
+        }
+
+        if user_id.is_none() {
             return true;
         }
 

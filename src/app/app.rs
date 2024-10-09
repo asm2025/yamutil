@@ -16,6 +16,7 @@ pub struct AppSettings {
     pub thread_id: Option<u64>,
     pub email: Option<String>,
     pub list_threads: bool,
+    pub exclude: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ impl App {
                 thread_id: None,
                 email: None,
                 list_threads: false,
+                exclude: None,
             },
             appinfo,
             service,
@@ -74,6 +76,7 @@ impl App {
             .column_spacing(CTRL_SPACING)
             .build();
         grid.set_orientation(Orientation::Horizontal);
+
         let mut row = 0;
 
         // token row
@@ -91,10 +94,10 @@ impl App {
             }
         ));
         grid.attach(&lbl_token, 0, row, 1, 1);
-        grid.attach(&ent_token, 1, row, 1, 1);
+        grid.attach(&ent_token, 1, row, 3, 1);
         row += 1;
 
-        // group row
+        // group & thread row
         let lbl_group = Label::builder().label("Group: ").width_request(40).build();
         let adj_group = Adjustment::new(
             settings.group_id.unwrap_or(0) as f64,
@@ -122,9 +125,6 @@ impl App {
         ));
         grid.attach(&lbl_group, 0, row, 1, 1);
         grid.attach(&spn_group, 1, row, 1, 1);
-        row += 1;
-
-        // thread row
         let lbl_thread = Label::builder().label("Thread: ").width_request(40).build();
         let adj_thread = Adjustment::new(
             settings.thread_id.unwrap_or(0) as f64,
@@ -150,8 +150,8 @@ impl App {
                 };
             }
         ));
-        grid.attach(&lbl_thread, 0, row, 1, 1);
-        grid.attach(&spn_thread, 1, row, 1, 1);
+        grid.attach(&lbl_thread, 2, row, 1, 1);
+        grid.attach(&spn_thread, 3, row, 1, 1);
         row += 1;
 
         // list threads row
@@ -185,7 +185,28 @@ impl App {
             }
         ));
         grid.attach(&lbl_email, 0, row, 1, 1);
-        grid.attach(&ent_email, 1, row, 1, 1);
+        grid.attach(&ent_email, 1, row, 3, 1);
+        row += 1;
+
+        // exclude row
+        let lbl_exclude = Label::builder()
+            .label("Exclude: ")
+            .width_request(40)
+            .build();
+        let ent_exclude = Entry::builder()
+            .hexpand(true)
+            .text(settings.exclude.as_ref().unwrap_or(&String::new()))
+            .build();
+        ent_exclude.connect_changed(clone!(
+            #[strong]
+            settings,
+            move |e| {
+                let mut settings = settings.clone();
+                settings.exclude = Some(e.text().to_string());
+            }
+        ));
+        grid.attach(&lbl_exclude, 0, row, 1, 1);
+        grid.attach(&ent_exclude, 1, row, 3, 1);
         row += 1;
 
         // commands row
@@ -201,7 +222,9 @@ impl App {
         });
         box_cmd.append(&btn_list);
         box_cmd.append(&btn_delete);
-        grid.attach(&box_cmd, 1, row, 1, 1);
+        grid.attach(&box_cmd, 0, row, 4, 1);
+
+        // Terminal row
 
         // last
         let window = ApplicationWindow::builder()
