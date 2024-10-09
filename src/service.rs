@@ -58,12 +58,14 @@ impl Service {
                 RLT_10,
             )
             .await?;
-
-        if !response.status().is_success() {
-            return Err(response.error_for_status().unwrap_err().into());
-        }
-
-        let json = response.json::<Value>().await?;
+        let text = self.get_json_text(response).await?;
+        let json = match serde_json::from_str::<Value>(&text) {
+            Ok(it) => it,
+            Err(e) => {
+                error!("{}\n{}", e, text);
+                return Err(e.into());
+            }
+        };
         let id = json
             .as_array()
             .and_then(|items| items.iter().find(|u| u["type"] == "user"))
@@ -89,17 +91,15 @@ impl Service {
                 RLT_10,
             )
             .await?;
-
-        if !response.status().is_success() {
-            return Err(response.error_for_status().unwrap_err().into());
-        }
-
-        let json = response.json::<Value>().await?;
-        Ok(YammerUser {
-            id: json["id"].as_u64().unwrap(),
-            name: json["full_name"].as_str().unwrap().to_string(),
-            email: json["email"].as_str().unwrap().to_string(),
-        })
+        let text = self.get_json_text(response).await?;
+        let json = match serde_json::from_str::<Value>(&text) {
+            Ok(it) => it,
+            Err(e) => {
+                error!("{}\n{}", e, text);
+                return Err(e.into());
+            }
+        };
+        Ok(YammerUser::from_json(&json))
     }
 
     pub async fn get_users<C>(
@@ -108,7 +108,7 @@ impl Service {
         token: &str,
         page: u32,
         num_per_page: u32,
-    ) -> Result<()>
+    ) -> Result<bool>
     where
         C: Extend<(u64, YammerUser)> + Send,
     {
@@ -128,27 +128,28 @@ impl Service {
                 RLT_10,
             )
             .await?;
-
-        if !response.status().is_success() {
-            return Err(response.error_for_status().unwrap_err().into());
+        let text = self.get_json_text(response).await?;
+        if text.is_empty() {
+            return Ok(false);
         }
-
-        let json = response.json::<Value>().await?;
+        let json = match serde_json::from_str::<Value>(&text) {
+            Ok(it) => it,
+            Err(e) => {
+                error!("{}\n{}", e, text);
+                return Err(e.into());
+            }
+        };
         let users = json
             .as_array()
             .unwrap()
             .iter()
             .filter(|e| e["type"] == "user")
             .map(|e| {
-                let user = YammerUser {
-                    id: e["id"].as_u64().unwrap(),
-                    name: e["full_name"].as_str().unwrap().to_string(),
-                    email: e["email"].as_str().unwrap().to_string(),
-                };
+                let user = YammerUser::from_json(e);
                 (user.id, user)
             });
         collection.extend(users);
-        Ok(())
+        Ok(true)
     }
 
     pub async fn get_user_groups<C>(
@@ -156,7 +157,7 @@ impl Service {
         collection: &mut C,
         token: &str,
         user_id: u64,
-    ) -> Result<()>
+    ) -> Result<bool>
     where
         C: Extend<(u64, YammerGroup)> + Send,
     {
@@ -170,27 +171,28 @@ impl Service {
                 RLT_10,
             )
             .await?;
-
-        if !response.status().is_success() {
-            return Err(response.error_for_status().unwrap_err().into());
+        let text = self.get_json_text(response).await?;
+        if text.is_empty() {
+            return Ok(false);
         }
-
-        let json = response.json::<Value>().await?;
+        let json = match serde_json::from_str::<Value>(&text) {
+            Ok(it) => it,
+            Err(e) => {
+                error!("{}\n{}", e, text);
+                return Err(e.into());
+            }
+        };
         let groups = json
             .as_array()
             .unwrap()
             .iter()
             .filter(|e| e["type"] == "group")
             .map(|e| {
-                let group = YammerGroup {
-                    id: e["id"].as_u64().unwrap(),
-                    name: e["name"].as_str().unwrap().to_string(),
-                    display_name: e["full_name"].as_str().unwrap().to_string(),
-                };
+                let group = YammerGroup::from_json(e);
                 (group.id, group)
             });
         collection.extend(groups);
-        Ok(())
+        Ok(true)
     }
 
     pub async fn get_group_users<C>(
@@ -199,7 +201,7 @@ impl Service {
         token: &str,
         group_id: u64,
         page: u32,
-    ) -> Result<()>
+    ) -> Result<bool>
     where
         C: Extend<(u64, YammerUser)> + Send,
     {
@@ -213,27 +215,28 @@ impl Service {
                 RLT_10,
             )
             .await?;
-
-        if !response.status().is_success() {
-            return Err(response.error_for_status().unwrap_err().into());
+        let text = self.get_json_text(response).await?;
+        if text.is_empty() {
+            return Ok(false);
         }
-
-        let json = response.json::<Value>().await?;
+        let json = match serde_json::from_str::<Value>(&text) {
+            Ok(it) => it,
+            Err(e) => {
+                error!("{}\n{}", e, text);
+                return Err(e.into());
+            }
+        };
         let users = json
             .as_array()
             .unwrap()
             .iter()
             .filter(|e| e["type"] == "user")
             .map(|e| {
-                let user = YammerUser {
-                    id: e["id"].as_u64().unwrap(),
-                    name: e["full_name"].as_str().unwrap().to_string(),
-                    email: e["email"].as_str().unwrap().to_string(),
-                };
+                let user = YammerUser::from_json(e);
                 (user.id, user)
             });
         collection.extend(users);
-        Ok(())
+        Ok(true)
     }
 
     pub async fn get_messages<C>(
@@ -269,13 +272,18 @@ impl Service {
                 RLT_10,
             )
             .await?;
-
-        if !response.status().is_success() {
-            return Err(response.error_for_status().unwrap_err().into());
+        let text = self.get_json_text(response).await?;
+        if text.is_empty() {
+            return Ok(false);
         }
-
-        let feed = response.json::<Value>().await?;
-        let messages = feed["messages"]
+        let json = match serde_json::from_str::<Value>(&text) {
+            Ok(it) => it,
+            Err(e) => {
+                error!("{}\n{}", e, text);
+                return Err(e.into());
+            }
+        };
+        let messages = json["messages"]
             .as_array()
             .unwrap()
             .iter()
@@ -285,7 +293,7 @@ impl Service {
             })
             .cloned();
         collection.extend(messages);
-        let older_available = feed["meta"]["older_available"].as_bool().unwrap_or(false);
+        let older_available = json["meta"]["older_available"].as_bool().unwrap_or(false);
         return Ok(older_available);
     }
 
@@ -309,13 +317,18 @@ impl Service {
                 RLT_10,
             )
             .await?;
-
-        if !response.status().is_success() {
-            return Err(response.error_for_status().unwrap_err().into());
+        let text = self.get_json_text(response).await?;
+        if text.is_empty() {
+            return Ok(());
         }
-
-        let feed = response.json::<Value>().await?;
-        let messages = feed["messages"]
+        let json = match serde_json::from_str::<Value>(&text) {
+            Ok(it) => it,
+            Err(e) => {
+                error!("{}\n{}", e, text);
+                return Err(e.into());
+            }
+        };
+        let messages = json["messages"]
             .as_array()
             .unwrap()
             .iter()
@@ -440,7 +453,7 @@ impl Service {
                 break;
             }
 
-            let message = YammerMessage::from_json(&message, groups);
+            let message = YammerMessage::from_json(&message, None, Some(groups));
             let url = format!("{}messages/{}.json", BASE_URL, &message.id);
             let response = self
                 .send_with_rate_limit(
@@ -526,5 +539,23 @@ impl Service {
             }
         };
         Ok(response)
+    }
+
+    async fn get_json_text(&self, response: Response) -> Result<String> {
+        if !response.status().is_success() {
+            return Err(response.error_for_status().unwrap_err().into());
+        }
+
+        let text = response.text().await?;
+
+        if text.is_empty()
+            || text.len() == 2
+                && (text.starts_with('[') && text.ends_with(']')
+                    || text.starts_with('{') && text.ends_with('}'))
+        {
+            return Ok(String::new());
+        }
+
+        Ok(text)
     }
 }

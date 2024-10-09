@@ -158,8 +158,23 @@ pub struct YammerUser {
     pub id: u64,
     pub name: String,
     pub email: String,
+    pub network_id: u64,
+    pub state: String,
+    pub job_title: String,
 }
 
+impl YammerUser {
+    pub fn from_json(user: &Value) -> Self {
+        YammerUser {
+            id: user["id"].as_u64().unwrap(),
+            name: user["full_name"].as_str().unwrap().to_owned(),
+            email: user["email"].as_str().unwrap().to_owned(),
+            network_id: user["network_id"].as_u64().unwrap(),
+            state: user["state"].as_str().unwrap_or("").to_owned(),
+            job_title: user["job_title"].as_str().unwrap_or("").to_owned(),
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YammerGroup {
     pub id: u64,
@@ -167,11 +182,22 @@ pub struct YammerGroup {
     pub display_name: String,
 }
 
+impl YammerGroup {
+    pub fn from_json(group: &Value) -> Self {
+        YammerGroup {
+            id: group["id"].as_u64().unwrap(),
+            name: group["name"].as_str().unwrap().to_owned(),
+            display_name: group["full_name"].as_str().unwrap().to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct YammerMessage {
     pub id: u64,
     pub replied_to_id: Option<u64>,
     pub sender_id: u64,
+    pub sender_name: String,
     pub network_id: u64,
     pub group_id: u64,
     pub group_name: String,
@@ -189,16 +215,34 @@ impl YammerMessage {
         self.replied_to_id.is_none()
     }
 
-    pub fn from_json(message: &Value, groups: &HashMap<u64, YammerGroup>) -> Self {
+    pub fn from_json(
+        message: &Value,
+        users: Option<&HashMap<u64, YammerUser>>,
+        groups: Option<&HashMap<u64, YammerGroup>>,
+    ) -> Self {
+        let sender_id = message["sender_id"].as_u64().unwrap_or(0);
+        let sender_name = if let Some(users) = users {
+            users
+                .get(&sender_id)
+                .map(|e| e.email.to_owned())
+                .unwrap_or(sender_id.to_string())
+        } else {
+            sender_id.to_string()
+        };
         let group_id = message["group_id"].as_u64().unwrap_or(0);
-        let group_name = groups
-            .get(&group_id)
-            .map(|e| e.display_name.to_owned())
-            .unwrap_or(group_id.to_string());
+        let group_name = if let Some(groups) = groups {
+            groups
+                .get(&group_id)
+                .map(|e| e.display_name.to_owned())
+                .unwrap_or(group_id.to_string())
+        } else {
+            group_id.to_string()
+        };
         YammerMessage {
             id: message["id"].as_u64().unwrap_or(0),
             replied_to_id: message["replied_to_id"].as_u64(),
             sender_id: message["sender_id"].as_u64().unwrap_or(0),
+            sender_name: sender_name,
             network_id: message["network_id"].as_u64().unwrap_or(0),
             group_id: group_id,
             group_name: group_name,

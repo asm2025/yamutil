@@ -15,7 +15,7 @@
                     "kind": "bin"
                 }
             },
-            "args": ["-d"],
+            "args": ["-d", "-k", "1371983-qnPH9j8b4sWv0qgM7xRPJg"],
             "cwd": "${workspaceFolder}"
         },
         {

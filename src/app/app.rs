@@ -1,9 +1,12 @@
 use gtk::prelude::*;
 use gtk::{
-    glib::clone, Adjustment, Align, Application, ApplicationWindow, Box, Button, CheckButton,
-    Entry, Grid, Label, Orientation, SpinButton,
+    gio::ListStore,
+    glib::{clone, Object},
+    Adjustment, Align, Application, ApplicationWindow, Box, Button, CheckButton, Entry, Grid,
+    Label, ListView, Orientation, SignalListItemFactory, SingleSelection, SpinButton,
 };
 use rustmix::{error::*, *};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::*;
@@ -22,8 +25,8 @@ pub struct AppSettings {
 #[derive(Debug, Clone)]
 pub struct App {
     pub settings: AppSettings,
-    appinfo: Arc<AppInfo<'static>>,
-    service: Arc<Service>,
+    pub appinfo: Arc<AppInfo<'static>>,
+    pub service: Arc<Service>,
 }
 
 impl App {
@@ -50,11 +53,12 @@ impl App {
         let application = Application::builder().application_id(APP_ID).build();
         let appinfo = self.appinfo.clone();
         let settings = self.settings.clone();
+        let this = self.clone();
         application.connect_activate(clone!(
             #[strong]
             appinfo,
             move |app| {
-                Self::build_ui(app, &appinfo, &settings);
+                this.build_ui(app, &appinfo, &settings);
             }
         ));
 
@@ -66,7 +70,7 @@ impl App {
         }
     }
 
-    fn build_ui<'a>(app: &Application, appinfo: &Arc<AppInfo<'a>>, settings: &AppSettings) {
+    fn build_ui<'a>(&self, app: &Application, appinfo: &Arc<AppInfo<'a>>, settings: &AppSettings) {
         let grid = Grid::builder()
             .margin_top(CTRL_MARGIN)
             .margin_bottom(CTRL_MARGIN)
@@ -78,6 +82,26 @@ impl App {
         grid.set_orientation(Orientation::Horizontal);
 
         let mut row = 0;
+
+        // List stores
+        let store_users = ListStore::new();
+        let store_messages = ListStore::new();
+        let store_delete = ListStore::new();
+        // list item factory
+        let factory = SignalListItemFactory::new();
+        factory.connect_setup(clone!(move |_, item| {
+            let _box = Box::new(Orientation::Vertical, 4);
+            let lbl = Label::new(None);
+            _box.append(&lbl);
+            item.set_child(Some(&_box));
+        }));
+        factory.connect_bind(clone!(move |_, item| {
+            let _box = item.child().unwrap().downcast::<Box>().unwrap();
+            let lbl = _box.first_child().unwrap().downcast::<Label>().unwrap();
+            let itm = item.item().unwrap().downcast::<Object>().unwrap();
+            let txt = itm.property::<String>("string");
+            lbl.set_text(&txt);
+        }));
 
         // token row
         let lbl_token = Label::builder().label("Token: ").width_request(40).build();
@@ -209,22 +233,51 @@ impl App {
         grid.attach(&ent_exclude, 1, row, 3, 1);
         row += 1;
 
+        // Data row
+        let selection = SingleSelection::new(Some(store_users.clone().upcast()));
+        let list_view = ListView::builder()
+            .hexpand(true)
+            .model(&selection)
+            .factory(&factory)
+            .build();
+        grid.attach(&list_view, 0, row, 4, 1);
+        row += 1;
+
         // commands row
         let box_cmd = Box::builder()
             .orientation(Orientation::Horizontal)
             .hexpand(true)
             .halign(Align::End)
             .build();
+        let btn_users = Button::builder().label("Users").width_request(24).build();
+        let service = self.service.clone();
+        btn_users.connect_clicked(clone!(
+            #[strong]
+            service,
+            #[strong]
+            store_users,
+            #[strong]
+            selection,
+            move |e| {
+                e.set_label("Stop");
+                store_users.remove_all();
+                // let users = HashMap::new();
+                // service.get_users(&mut users, ).unwrap();
+                store_users.append(Object::new::<Object>(&[("name", &"User 1")]));
+                store_users.insert_with_values(None, &[(0, &"User 2".to_value())]);
+                store_users.insert_with_values(None, &[(0, &"User 3".to_value())]);
+                selection.set_model(Some(&store_users));
+            }
+        ));
+        box_cmd.append(&btn_users);
         let btn_list = Button::builder().label("List").width_request(24).build();
-        let btn_delete = Button::builder().label("Delete").width_request(24).build();
         btn_list.connect_clicked(|e| {
             e.set_label("Stop");
         });
         box_cmd.append(&btn_list);
+        let btn_delete = Button::builder().label("Delete").width_request(24).build();
         box_cmd.append(&btn_delete);
         grid.attach(&box_cmd, 0, row, 4, 1);
-
-        // Terminal row
 
         // last
         let window = ApplicationWindow::builder()
