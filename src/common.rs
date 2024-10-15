@@ -21,8 +21,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub const APP_ID: &str = "com.github.asm.yamutil";
-
 #[cfg(debug_assertions)]
 pub const TIMEOUT: u64 = 30;
 #[cfg(not(debug_assertions))]
@@ -52,23 +50,14 @@ lazy_static! {
 )]
 pub struct Args {
     /// The Yammer application token.
-    #[arg(short = 'k', long)]
-    pub token: Option<String>,
+    #[arg(short = 'k', long, required = true)]
+    pub token: String,
     /// Enable debug mode. The build must be a debug build.
     #[arg(short, long)]
     pub debug: bool,
     /// The action to take on Yammer user's posts.
     #[command(subcommand)]
-    pub action: Option<YammerAction>,
-}
-
-impl Args {
-    pub fn validate(&self) -> Result<()> {
-        if self.action.is_some() && self.token.is_none() {
-            return Err(ArgumentMissingError("Token is required for action".to_owned()).into());
-        }
-        Ok(())
-    }
+    pub action: YammerAction,
 }
 
 #[derive(Subcommand, Debug, Clone, PartialEq, Eq)]
@@ -153,7 +142,7 @@ impl TokenBucket {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct YammerUser {
     pub id: u64,
     pub name: String,
@@ -174,8 +163,27 @@ impl YammerUser {
             job_title: user["job_title"].as_str().unwrap_or("").to_owned(),
         }
     }
+
+    pub fn with(
+        id: u64,
+        name: &str,
+        email: &str,
+        network_id: u64,
+        state: &str,
+        job_title: &str,
+    ) -> Self {
+        YammerUser {
+            id: id,
+            name: name.to_owned(),
+            email: email.to_owned(),
+            network_id: network_id,
+            state: state.to_owned(),
+            job_title: job_title.to_owned(),
+        }
+    }
 }
-#[derive(Debug, Clone, Serialize, Deserialize)]
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct YammerGroup {
     pub id: u64,
     pub name: String,
@@ -192,7 +200,7 @@ impl YammerGroup {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct YammerMessage {
     pub id: u64,
     pub replied_to_id: Option<u64>,
