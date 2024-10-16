@@ -103,7 +103,7 @@ pub enum YammerAction {
         email: Option<String>,
         /// Message IDs to exclude from deletion.
         #[arg(short = 'x', long)]
-        exclude: String,
+        exclude: Option<String>,
     },
 }
 
@@ -160,24 +160,6 @@ impl YammerUser {
             network_id: user["network_id"].as_u64().unwrap(),
             state: user["state"].as_str().unwrap_or("").to_owned(),
             job_title: user["job_title"].as_str().unwrap_or("").to_owned(),
-        }
-    }
-
-    pub fn with(
-        id: u64,
-        name: &str,
-        email: &str,
-        network_id: u64,
-        state: &str,
-        job_title: &str,
-    ) -> Self {
-        YammerUser {
-            id: id,
-            name: name.to_owned(),
-            email: email.to_owned(),
-            network_id: network_id,
-            state: state.to_owned(),
-            job_title: job_title.to_owned(),
         }
     }
 }

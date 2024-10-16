@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -70,7 +70,10 @@ impl ActionHandler {
                 } else {
                     None
                 };
-                let exclude = parse_excludes(exclude);
+                let exclude = match exclude {
+                    Some(exclude) => parse_excludes(exclude),
+                    None => HashSet::new(),
+                };
                 let count = self
                     .service
                     .delete(&token, *group_id, *thread_id, user_id, &exclude)
