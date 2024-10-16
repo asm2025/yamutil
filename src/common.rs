@@ -2,7 +2,6 @@ use clap::{command, ArgGroup, Parser, Subcommand};
 use lazy_static::lazy_static;
 use reqwest_cookie_store::CookieStoreRwLock;
 use rustmix::{
-    error::*,
     io::directory,
     random,
     web::reqwest::{
@@ -93,7 +92,7 @@ pub enum YammerAction {
     /// Delete messages.
     #[command(group(ArgGroup::new(ARGSGRP_GROUP_OR_THREAD).args(&["group_id", "thread_id"])))]
     Delete {
-        /// The message group id. If no group id is provided, all messages will be listed.
+        /// The message group id. If no group id is provided, all messages will be deleted.
         #[arg(short, long, group = ARGSGRP_GROUP_OR_THREAD)]
         group_id: Option<u64>,
         /// The message thread id. If no thread id is provided, all messages will be deleted.
